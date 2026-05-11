@@ -1,5 +1,10 @@
+const urlParams = new URLSearchParams(window.location.search);
+const runtimeServerUrl = urlParams.get("server") || localStorage.getItem("chipless-server-url");
 const PRODUCTION_SERVER_URL =
-  window.CHIPLESS_CONFIG?.SERVER_URL || "https://your-backend.onrender.com";
+  runtimeServerUrl || window.CHIPLESS_CONFIG?.SERVER_URL || "https://your-backend.onrender.com";
+if (urlParams.get("server")) {
+  localStorage.setItem("chipless-server-url", urlParams.get("server"));
+}
 const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const socket = isLocalhost ? io() : io(PRODUCTION_SERVER_URL);
 

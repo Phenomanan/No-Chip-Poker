@@ -53,6 +53,12 @@ Edit apps/web/src/config.js and set SERVER_URL to your backend URL, for example:
 
 Local development still uses same-origin Socket.IO on localhost.
 
+You can also override the backend URL at runtime without editing code by opening the site with:
+
+- ?server=https://your-app.onrender.com
+
+The frontend stores that value in localStorage as chipless-server-url for future visits.
+
 ### 3) Deploy frontend to GitHub Pages
 
 This repo includes a Pages workflow in .github/workflows/deploy-pages.yml.
