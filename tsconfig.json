@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "composite": false
+  },
+  "include": [
+    "packages/shared-types/src",
+    "packages/rules-engine/src",
+    "apps/server/src"
+  ]
+}

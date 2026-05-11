@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poker Chip Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div class="bg-blur bg-blur-left"></div>
+    <div class="bg-blur bg-blur-right"></div>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Live Table Companion</p>
+        <h1>Chipless Poker Tracker</h1>
+        <p class="sub">
+          Create, join, and rejoin rooms without losing game state on refresh.
+        </p>
+      </section>
+
+      <section class="panel" id="auth-panel">
+        <h2>Get In The Room</h2>
+        <div class="form-grid">
+          <div class="card">
+            <h3>Create Room</h3>
+            <label>Display Name <input id="create-display-name" placeholder="Alex" /></label>
+            <label>Room Name <input id="create-room-name" placeholder="Friday Night" /></label>
+            <label>Small Blind <input id="create-sb" type="number" value="25" min="1" /></label>
+            <label>Big Blind <input id="create-bb" type="number" value="50" min="1" /></label>
+            <label>Starting Stack <input id="create-stack" type="number" value="1000" min="1" /></label>
+            <button id="create-room-button">Create Room</button>
+          </div>
+
+          <div class="card">
+            <h3>Join Room</h3>
+            <label>Room Code <input id="join-room-code" placeholder="ABC123" /></label>
+            <label>Display Name <input id="join-display-name" placeholder="Taylor" /></label>
+            <label>
+              Role
+              <select id="join-role">
+                <option value="player">Player</option>
+                <option value="spectator">Spectator</option>
+              </select>
+            </label>
+            <button id="join-room-button">Join Room</button>
+            <button id="rejoin-room-button" class="ghost">Rejoin Last Session</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="room-panel">
+        <div class="room-header">
+          <div>
+            <p class="mono" id="room-code">CODE</p>
+            <h2 id="room-name">Room</h2>
+          </div>
+          <div class="room-meta">
+            <span id="room-status">waiting</span>
+            <span id="room-street">resolved</span>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <article>
+            <p>Pot</p>
+            <strong id="pot">0</strong>
+          </article>
+          <article>
+            <p>Current Bet</p>
+            <strong id="current-bet">0</strong>
+          </article>
+          <article>
+            <p>Blinds</p>
+            <strong id="blinds">25 / 50</strong>
+          </article>
+          <article>
+            <p>Acting Player</p>
+            <strong id="acting-player">-</strong>
+          </article>
+        </div>
+
+        <div class="control-grid">
+          <div class="card" id="host-controls-card">
+            <h3>Host Controls</h3>
+            <button id="start-hand-button">Start Hand</button>
+            <div class="inline-fields">
+              <input id="update-sb" type="number" min="1" placeholder="SB" />
+              <input id="update-bb" type="number" min="1" placeholder="BB" />
+            </div>
+            <button id="update-blinds-button" class="ghost">Update Blinds</button>
+            <div style="margin-top: 1rem; border-top: 1px solid var(--muted); padding-top: 0.6rem;">
+              <label>Transfer Host <select id="transfer-host-select"><option value="">Select player...</option></select></label>
+              <button id="transfer-host-button" class="ghost" style="display: block; margin-top: 0.3rem;">Transfer</button>
+            </div>
+            <div id="showdown-controls" class="showdown-box hidden">
+              <p class="showdown-title">Showdown: Declare Winner(s)</p>
+              <p class="showdown-hint">Select one or more winners. Side pots are paid automatically based on contributions.</p>
+              <div id="showdown-winners-list" class="showdown-winners-list"></div>
+              <div class="showdown-actions" style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem;">
+                <button id="select-all-winners-button" class="ghost">Select All</button>
+                <button id="clear-all-winners-button" class="ghost">Clear All</button>
+              </div>
+              <button id="declare-winners-button" class="ghost">Declare Winner(s)</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Your Actions</h3>
+            <button id="hand-rankings-button" class="ghost" style="margin-bottom: 0.8rem; width: 100%;">📖 Hand Rankings</button>
+            <div id="actions-container"></div>
+          </div>
+        </div>
+
+        <div class="room-grid">
+          <div class="card">
+            <h3>Players</h3>
+            <ul id="players"></ul>
+          </div>
+          <div class="card">
+            <h3>Action Log</h3>
+            <ul id="log"></ul>
+          </div>
+          <div class="card">
+            <h3>Chat</h3>
+            <div id="chat-messages" style="max-height: 200px; overflow-y: auto; margin-bottom: 0.8rem;"></div>
+            <div class="inline-fields">
+              <input id="chat-input" type="text" placeholder="Type message..." />
+              <button id="chat-send-button" class="ghost">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <p id="feedback" class="feedback"></p>
+
+      <div id="hand-rankings-modal" class="modal hidden">
+        <div class="modal-content">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3>Poker Hand Rankings</h3>
+            <button id="close-rankings-button" class="ghost" style="padding: 0.2rem 0.5rem; font-size: 1.2rem;">×</button>
+          </div>
+          <div id="hand-rankings-list"></div>
+        </div>
+      </div>
+    </main>
+
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script src="./src/config.js"></script>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
+

@@ -1,0 +1,9 @@
+{
+  "name": "@chipless/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"Web client is static and served by apps/server\"",
+    "build": "echo \"No build step required for static web client\""
+  }
+}
