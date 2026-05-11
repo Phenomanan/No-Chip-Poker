@@ -71,13 +71,15 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const currentDir = path.dirname(currentFilePath);
 const webDir = path.resolve(currentDir, "../../web");
 
-app.use(express.static(webDir));
+if (process.env.NODE_ENV !== "production") {
+  app.use(express.static(webDir));
+  app.get("/", (_req, res) => {
+    res.sendFile(path.join(webDir, "index.html"));
+  });
+}
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "chipless-server" });
-});
-
-app.get("/", (_req, res) => {
-  res.sendFile(path.join(webDir, "index.html"));
 });
 
 const httpServer = createServer(app);
