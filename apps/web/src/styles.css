@@ -235,8 +235,27 @@ button.action.danger {
   border-radius: 999px;
   padding: 0.35rem 0.6rem;
   font-size: 0.84rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  background: #ffffff;
+  color: var(--muted);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+.room-meta span strong {
+  color: var(--ink);
+}
+
+.room-meta .status-pill {
+  border-color: color-mix(in srgb, var(--accent-2) 45%, var(--stroke));
+  background: #ecfeff;
+  color: var(--accent-2);
+}
+
+.room-meta .stage-pill {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--stroke));
+  background: #fff7ed;
+  color: var(--accent);
 }
 
 ul {
