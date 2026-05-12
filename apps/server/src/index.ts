@@ -101,6 +101,7 @@ const roomCodeToId = new Map<string, string>();
 const sessionToPlayerId = new Map<string, string>();
 const playerIdToRoomId = new Map<string, string>();
 const socketToPlayerId = new Map<string, string>();
+const roomStreetActionState = new Map<string, { street: RoomState["street"]; actedPlayerIds: Set<string> }>();
 
 const createRoomCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const createId = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 12);
@@ -179,9 +180,38 @@ function shouldSettleHand(room: RoomState): boolean {
     return true;
   }
 
+  const actionState = roomStreetActionState.get(room.id);
+  if (room.currentBet === 0) {
+    if (!actionState || actionState.street !== room.street) {
+      return false;
+    }
+
+    return playersWithChips.every((p) => actionState.actedPlayerIds.has(p.id));
+  }
+
   const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
   const hasPendingAction = playersInHand.some((p) => p.stack > 0 && p.commitment < highestCommitment);
   return !hasPendingAction;
+}
+
+function resetStreetActionState(room: RoomState): void {
+  roomStreetActionState.set(room.id, {
+    street: room.street,
+    actedPlayerIds: new Set<string>(),
+  });
+}
+
+function markPlayerActedThisStreet(room: RoomState, playerId: string): void {
+  const existing = roomStreetActionState.get(room.id);
+  if (!existing || existing.street !== room.street) {
+    roomStreetActionState.set(room.id, {
+      street: room.street,
+      actedPlayerIds: new Set<string>([playerId]),
+    });
+    return;
+  }
+
+  existing.actedPlayerIds.add(playerId);
 }
 
 function settleHand(room: RoomState, winnerIds: string[]): void {
@@ -233,6 +263,7 @@ function advanceStreetOrShowdown(room: RoomState): void {
   }
 
   room.pots = calculatePots(room);
+  resetStreetActionState(room);
   room.actingPlayerId = findFirstPostflopActingPlayer(room);
 
   // If all remaining players are all-in, immediately continue streets until showdown.
@@ -244,6 +275,7 @@ function advanceStreetOrShowdown(room: RoomState): void {
     }
 
     room.street = streetOrder[currentIndex + 1];
+    resetStreetActionState(room);
   }
 
   if (room.street !== "showdown") {
@@ -499,6 +531,7 @@ io.on("connection", (socket) => {
       room.pots = [];
       room.payouts = [];
       room.currentBet = 0;
+      resetStreetActionState(room);
 
       const players = room.players
         .filter((p) => p.role !== "spectator" && p.stack > 0)
@@ -652,6 +685,7 @@ io.on("connection", (socket) => {
       }
 
       appendAction(room, event.actorPlayerId, event.action, event.amount);
+      markPlayerActedThisStreet(room, event.actorPlayerId);
 
       if (event.action === "fold") {
         currentPlayer.inHand = false;
