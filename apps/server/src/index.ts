@@ -155,6 +155,19 @@ function findNextActingPlayer(room: RoomState, currentPlayerId: string): string 
   return sorted[nextIndex]?.id ?? null;
 }
 
+function findFirstPostflopActingPlayer(room: RoomState): string | null {
+  const playersInHand = room.players
+    .filter((p) => p.inHand && p.role !== "spectator" && p.stack > 0)
+    .sort((a, b) => a.seat - b.seat);
+
+  if (playersInHand.length === 0) {
+    return null;
+  }
+
+  const firstLeftOfDealer = playersInHand.find((p) => p.seat > room.dealerSeat) ?? playersInHand[0];
+  return firstLeftOfDealer?.id ?? null;
+}
+
 function shouldSettleHand(room: RoomState): boolean {
   const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator");
   if (playersInHand.length <= 1) {
@@ -200,6 +213,46 @@ function moveToShowdown(room: RoomState): void {
   room.street = "showdown";
   room.actingPlayerId = null;
   room.pots = calculatePots(room);
+}
+
+function advanceStreetOrShowdown(room: RoomState): void {
+  const streetOrder: RoomState["street"][] = ["preflop", "flop", "turn", "river"];
+  const streetIndex = streetOrder.indexOf(room.street);
+
+  if (streetIndex === -1 || streetIndex === streetOrder.length - 1) {
+    moveToShowdown(room);
+    return;
+  }
+
+  room.street = streetOrder[streetIndex + 1];
+  room.currentBet = 0;
+  for (const player of room.players) {
+    if (player.inHand) {
+      player.commitment = 0;
+    }
+  }
+
+  room.pots = calculatePots(room);
+  room.actingPlayerId = findFirstPostflopActingPlayer(room);
+
+  // If all remaining players are all-in, immediately continue streets until showdown.
+  while (room.actingPlayerId === null && room.street !== "showdown") {
+    const currentIndex = streetOrder.indexOf(room.street);
+    if (currentIndex === -1 || currentIndex === streetOrder.length - 1) {
+      moveToShowdown(room);
+      return;
+    }
+
+    room.street = streetOrder[currentIndex + 1];
+  }
+
+  if (room.street !== "showdown") {
+    room.actingPlayerId = findFirstPostflopActingPlayer(room);
+  }
+
+  if (room.actingPlayerId === null) {
+    moveToShowdown(room);
+  }
 }
 
 function createHostPlayer(input: CreateRoomInput): Player {
@@ -623,7 +676,7 @@ io.on("connection", (socket) => {
       if (playersInHand.length === 1) {
         settleHand(room, [playersInHand[0].id]);
       } else if (shouldSettleHand(room)) {
-        moveToShowdown(room);
+        advanceStreetOrShowdown(room);
       } else {
         room.actingPlayerId = findNextActingPlayer(room, event.actorPlayerId);
       }

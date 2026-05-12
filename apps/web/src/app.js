@@ -12,6 +12,8 @@ let currentRoom = null;
 let currentPlayerId = "";
 let currentSessionId = "";
 let raiseMode = false;
+const SESSION_STORAGE_KEY = "chipless-sessions";
+const LAST_SESSION_ROOM_CODE_KEY = "chipless-last-room-code";
 
 const feedback = document.querySelector("#feedback");
 const authPanel = document.querySelector("#auth-panel");
@@ -25,6 +27,8 @@ const potEl = document.querySelector("#pot");
 const currentBetEl = document.querySelector("#current-bet");
 const blindsEl = document.querySelector("#blinds");
 const actingPlayerEl = document.querySelector("#acting-player");
+const yourStackEl = document.querySelector("#your-stack");
+const yourCommitmentEl = document.querySelector("#your-commitment");
 const playersEl = document.querySelector("#players");
 const logEl = document.querySelector("#log");
 const actionsContainer = document.querySelector("#actions-container");
@@ -87,21 +91,85 @@ function toNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function saveSession(cache) {
-  localStorage.setItem("chipless-session", JSON.stringify(cache));
+function formatStreet(street) {
+  const labels = {
+    preflop: "Preflop",
+    flop: "Flop",
+    turn: "Turn",
+    river: "River",
+    showdown: "Showdown",
+    resolved: "Resolved",
+  };
+  return labels[street] ?? street;
 }
 
-function readSession() {
-  const raw = localStorage.getItem("chipless-session");
+function readSessionStore() {
+  const raw = localStorage.getItem(SESSION_STORAGE_KEY);
   if (!raw) {
-    return null;
+    return {};
   }
 
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch (error) {
-    return null;
+    return {};
   }
+}
+
+function writeSessionStore(store) {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(store));
+}
+
+function saveSession(cache) {
+  const roomCode = String(cache.roomCode || "").trim().toUpperCase();
+  if (!roomCode) {
+    return;
+  }
+
+  const store = readSessionStore();
+  store[roomCode] = {
+    roomCode,
+    sessionId: cache.sessionId,
+    playerId: cache.playerId,
+    updatedAt: Date.now(),
+  };
+  writeSessionStore(store);
+  localStorage.setItem(LAST_SESSION_ROOM_CODE_KEY, roomCode);
+}
+
+function readSession(preferredRoomCode) {
+  const store = readSessionStore();
+  const requestedRoomCode = String(preferredRoomCode || "").trim().toUpperCase();
+  if (requestedRoomCode && store[requestedRoomCode]) {
+    return store[requestedRoomCode];
+  }
+
+  const lastRoomCode = localStorage.getItem(LAST_SESSION_ROOM_CODE_KEY);
+  if (lastRoomCode && store[lastRoomCode]) {
+    return store[lastRoomCode];
+  }
+
+  const allSessions = Object.values(store).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  if (allSessions.length > 0) {
+    return allSessions[0];
+  }
+
+  return null;
+}
+
+function sessionCount() {
+  const store = readSessionStore();
+  return Object.keys(store).length;
+}
+
+function markRoomAsMostRecent(roomCode) {
+  const normalized = String(roomCode || "").trim().toUpperCase();
+  if (!normalized) {
+    return;
+  }
+
+  localStorage.setItem(LAST_SESSION_ROOM_CODE_KEY, normalized);
 }
 
 function showRoomPanel(room) {
@@ -200,14 +268,12 @@ function renderActions(room, playerId) {
   if (raiseMode && actions.includes("raise") && player) {
     const minRaise = calculateMinRaise(room);
     const pot = calculatePotAmount(room);
-    const halfPot = Math.floor(pot / 2);
     const allIn = player.stack;
 
     html += `
       <div style="margin-top: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
         <input id="raise-amount-input" type="number" min="${minRaise}" placeholder="Raise to..." style="flex: 1; min-width: 120px;" />
         <button id="min-raise-button" class="action ghost" style="font-size: 0.85rem; padding: 0.5rem 0.6rem;">Min (${minRaise})</button>
-        <button id="half-pot-button" class="action ghost" style="font-size: 0.85rem; padding: 0.5rem 0.6rem;">½ Pot (${halfPot})</button>
         <button id="pot-button" class="action ghost" style="font-size: 0.85rem; padding: 0.5rem 0.6rem;">Pot (${pot})</button>
         <button id="all-in-button" class="action ghost" style="font-size: 0.85rem; padding: 0.5rem 0.6rem;">All In (${allIn})</button>
         <button id="raise-submit-button" class="action" style="padding: 0.5rem 0.85rem;">Submit</button>
@@ -249,15 +315,6 @@ function renderActions(room, playerId) {
   if (minButton) {
     minButton.addEventListener("click", () => {
       const amount = calculateMinRaise(room);
-      const input = document.querySelector("#raise-amount-input");
-      if (input) input.value = String(amount);
-    });
-  }
-
-  const halfPotButton = document.querySelector("#half-pot-button");
-  if (halfPotButton) {
-    halfPotButton.addEventListener("click", () => {
-      const amount = Math.floor(calculatePotAmount(room) / 2);
       const input = document.querySelector("#raise-amount-input");
       if (input) input.value = String(amount);
     });
@@ -313,7 +370,7 @@ function renderRoom(room) {
   roomCodeEl.textContent = room.code;
   roomNameEl.textContent = room.name;
   roomStatusEl.textContent = room.status;
-  roomStreetEl.textContent = room.street;
+  roomStreetEl.textContent = formatStreet(room.street);
   
   const totalPot = Array.isArray(room.pots) ? room.pots.reduce((sum, p) => sum + p.amount, 0) : 0;
   potEl.textContent = String(totalPot);
@@ -323,17 +380,24 @@ function renderRoom(room) {
   const acting = room.players.find((p) => p.id === room.actingPlayerId);
   actingPlayerEl.textContent = acting ? acting.displayName : "-";
 
+  const me = room.players.find((p) => p.id === currentPlayerId);
+  yourStackEl.textContent = me ? String(me.stack) : "-";
+  yourCommitmentEl.textContent = me ? String(me.commitment) : "-";
+
   playersEl.innerHTML = room.players
     .map((p) => {
       const isActive = p.id === room.actingPlayerId ? "active" : "";
-      const me = p.id === currentPlayerId ? " (you)" : "";
+      const isMe = p.id === currentPlayerId;
+      const meLabel = isMe ? " (you)" : "";
+      const meClass = isMe ? "me" : "";
       const connected = p.connected ? "online" : "offline";
       const payoutInfo = room.payouts?.find((payout) => payout.playerId === p.id)
         ? ` [Won ${room.payouts.find((payout) => payout.playerId === p.id).amount}]`
         : "";
       const dealerBadge = p.seat === room.dealerSeat ? " 🎰" : "";
       const sbBadge = p.seat === room.smallBlindSeat ? " 🔸" : "";
-      return `<li class="${isActive}">${p.displayName}${me} - ${p.role} - seat ${p.seat}${dealerBadge}${sbBadge} - stack ${p.stack} - ${connected}${payoutInfo}</li>`;
+      const commitmentText = p.inHand ? ` - bet ${p.commitment}` : "";
+      return `<li class="${isActive} ${meClass}">${p.displayName}${meLabel} - ${p.role} - seat ${p.seat}${dealerBadge}${sbBadge} - stack ${p.stack}${commitmentText} - ${connected}${payoutInfo}</li>`;
     })
     .join("");
 
@@ -424,7 +488,8 @@ joinRoomButton.addEventListener("click", () => {
 });
 
 rejoinRoomButton.addEventListener("click", () => {
-  const cached = readSession();
+  const typedRoomCode = joinRoomCode.value.trim().toUpperCase();
+  const cached = readSession(typedRoomCode);
   if (!cached) {
     setFeedback("No previous session found in this browser.", true);
     return;
@@ -589,6 +654,7 @@ socket.on("event", (serverEvent) => {
       sessionId: serverEvent.sessionId,
       playerId: serverEvent.playerId,
     });
+    markRoomAsMostRecent(serverEvent.room.code);
     showRoomPanel(serverEvent.room);
     setFeedback("Room created. Share the room code with friends.");
     return;
@@ -602,6 +668,7 @@ socket.on("event", (serverEvent) => {
       sessionId: serverEvent.sessionId,
       playerId: serverEvent.playerId,
     });
+    markRoomAsMostRecent(serverEvent.room.code);
     showRoomPanel(serverEvent.room);
     setFeedback("Joined room successfully.");
     return;
@@ -609,10 +676,11 @@ socket.on("event", (serverEvent) => {
 
   if (serverEvent.type === "rejoined_room") {
     currentPlayerId = serverEvent.playerId;
-    const cached = readSession();
+    const cached = readSession(serverEvent.room.code);
     if (cached) {
       currentSessionId = cached.sessionId;
     }
+    markRoomAsMostRecent(serverEvent.room.code);
     showRoomPanel(serverEvent.room);
     setFeedback("Rejoined room and restored state.");
     return;
@@ -623,10 +691,8 @@ socket.on("event", (serverEvent) => {
   }
 });
 
-const cached = readSession();
-if (cached) {
-  joinRoomCode.value = cached.roomCode;
-  setFeedback("Previous session found. Click Rejoin Last Session.");
+if (sessionCount() > 0) {
+  setFeedback(`Saved sessions found (${sessionCount()}). Enter a room code and click Rejoin Last Session.`);
 }
 
 void currentSessionId;
