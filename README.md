@@ -1,70 +1,105 @@
 # No-Chip Poker
 
-A better no-chip poker companion app for in-person games.
+Browser-based no-chip poker companion app for in-person games.
 
 ## Workspace
 
-- apps/server: Realtime Socket.IO server (authoritative room state)
-- apps/web: Frontend app (placeholder for now)
-- packages/shared-types: Shared event and domain types
-- packages/rules-engine: Server-side action validation helpers
+- `apps/server`: Realtime Socket.IO server (authoritative room state)
+- `apps/web`: Static frontend (GitHub Pages-compatible)
+- `packages/shared-types`: Shared event and domain types
+- `packages/rules-engine`: Server-side action validation helpers
 
-## Quick start
+## Local development
 
-1. Install dependencies for all packages:
-   npm run install:all
-2. Build shared modules and server:
-   npm run build:server
-3. Run server:
-   npm run dev:server
+1. Install dependencies:
+   `npm ci`
+2. Start server + local web client:
+   `npm run dev:server`
+3. Open:
+   `http://localhost:3001`
 
-The server starts on http://localhost:3001 by default.
+Notes:
+- In non-production mode, the server also serves the frontend from `apps/web`.
+- Localhost uses same-origin Socket.IO (`/socket.io/socket.io.js`).
 
-Open http://localhost:3001 to use the web client.
+## Production runbook (GitHub Pages + Render)
 
-## Temporary production hosting
+Current production split:
+- Frontend: GitHub Pages (static files from `apps/web`)
+- Backend: Render Web Service (Node + Socket.IO)
 
-This app is split into:
+### 1) Deploy backend on Render
 
-- Frontend static files in apps/web (can be hosted on GitHub Pages)
-- Realtime Socket.IO backend in apps/server (must be hosted on a Node runtime)
+Create a **Web Service** from this repository with:
 
-### 1) Deploy backend (Render example)
-
-- Create a Render Web Service from this repository.
-- Build command:
-   npm ci
-   npm run build:server
+- Build command (one line):
+  `npm ci && npm run build:server`
 - Start command:
-   node dist/apps/server/src/index.js
-- Environment variables:
-   - CORS_ORIGINS=https://<your-username>.github.io
-   - RATE_LIMIT_WINDOW_MS=60000
-   - RATE_LIMIT_MAX=200
-   - PORT is provided by Render automatically
+  `node dist/apps/server/src/index.js`
+- Health check path:
+  `/health`
 
-If your repo is under a project path, add that full Pages origin to CORS_ORIGINS.
-If you rename the GitHub repository to match the new app name, the Pages URL will change to the new repo slug automatically.
+Set environment variables:
+- `CORS_ORIGINS=https://phenomanan.github.io,https://phenomanan.github.io/No-Chip-Poker,http://localhost:3001`
+- `RATE_LIMIT_WINDOW_MS=60000`
+- `RATE_LIMIT_MAX=200`
+- `NODE_ENV=production`
 
-### 2) Point frontend to backend
+Render provides `PORT` automatically.
 
-Edit apps/web/src/config.js and set SERVER_URL to your backend URL, for example:
+### 2) Point frontend to Render backend
 
-- https://your-app.onrender.com
+`apps/web/src/config.js` is preconfigured with:
+- `SERVER_URL: "https://poker-chip-tracker-server.onrender.com"`
 
-Local development still uses same-origin Socket.IO on localhost.
+Optional runtime override still works:
+- Open the app with `?server=https://your-backend.onrender.com`
+- The value is cached in `localStorage` under `chipless-server-url`
 
-You can also override the backend URL at runtime without editing code by opening the site with:
+### 3) Deploy frontend on GitHub Pages
 
-- ?server=https://your-app.onrender.com
+This repository includes a workflow at `.github/workflows/deploy-pages.yml`.
 
-The frontend stores that value in localStorage as chipless-server-url for future visits.
+Steps:
+1. Push to `main` (or run workflow manually).
+2. In GitHub repo settings, configure Pages source as **GitHub Actions**.
+3. Workflow publishes `apps/web` directly.
 
-### 3) Deploy frontend to GitHub Pages
+### 4) Post-deploy smoke check
 
-This repo includes a Pages workflow in .github/workflows/deploy-pages.yml.
+1. Open the Pages URL.
+2. Create a room and copy the room code.
+3. Join from a second tab/device.
+4. Confirm realtime sync and action log updates.
+5. Confirm `https://poker-chip-tracker-server.onrender.com/health` returns `{ ok: true }`.
 
-- Push to main (or run the workflow manually).
-- In GitHub repo settings, enable Pages and select GitHub Actions as source.
+## Current MVP behavior
 
-The workflow publishes apps/web directly.
+- Anonymous create/join/rejoin flow (no auth required)
+- Per-room session restore in browser localStorage
+- Street progression through preflop/flop/turn/river/showdown
+- Mobile-friendly controls and touch target sizing
+- Dark mode toggle with persisted preference (`no-chip-theme`)
+
+## Remaining todos (post-MVP backlog)
+
+Priority 1 (stability + reliability):
+- Replace in-memory room state with persistent storage (Postgres and/or Redis)
+- Add room/session TTL cleanup for abandoned rooms
+- Add structured server logging and error tracking
+- Add automated backups or snapshot strategy for persisted room data
+
+Priority 2 (game correctness):
+- Implement full 7-card hand evaluation on server
+- Expand showdown validation and split-pot edge case handling
+- Add deterministic regression tests for street/action progression
+
+Priority 3 (operational hardening):
+- Add CI test workflow for backend + shared rules engine
+- Add load/concurrency smoke tests for multi-player room updates
+- Add basic admin-only room reset endpoint (or internal script)
+
+Priority 4 (product polish):
+- Add optional hand history export (JSON/CSV)
+- Improve spectator UX and host controls for large tables
+- Finalize production domain/branding cleanup after repo rename migration
