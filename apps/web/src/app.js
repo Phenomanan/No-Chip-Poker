@@ -103,6 +103,23 @@ function formatStreet(street) {
   return labels[street] ?? street;
 }
 
+function formatHandStatus(room, playerId) {
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) {
+    return room.status === "in_hand" ? "Observing" : "Waiting";
+  }
+
+  if (player.role === "spectator") {
+    return "Spectating";
+  }
+
+  if (room.status !== "in_hand") {
+    return room.status === "paused" ? "Waiting for showdown" : "Waiting";
+  }
+
+  return player.inHand ? "Playing" : "Out";
+}
+
 function readSessionStore() {
   const raw = localStorage.getItem(SESSION_STORAGE_KEY);
   if (!raw) {
@@ -257,7 +274,8 @@ function renderActions(room, playerId) {
     } else if (action === "check") {
       html += `<button data-action="check" class="action">Check</button>`;
     } else if (action === "call") {
-      html += `<button data-action="call" class="action">Call</button>`;
+      const amountToCall = Math.max(0, room.currentBet - player.commitment);
+      html += `<button data-action="call" class="action">Call (${amountToCall})</button>`;
     } else if (action === "all_in") {
       html += `<button data-action="all_in" class="action danger">All In</button>`;
     }
@@ -369,8 +387,8 @@ function renderRoom(room) {
   currentRoom = room;
   roomCodeEl.textContent = room.code;
   roomNameEl.textContent = room.name;
-  roomStatusEl.textContent = room.status;
-  roomStreetEl.textContent = formatStreet(room.street);
+  roomStatusEl.textContent = `Hand Status: ${formatHandStatus(room, currentPlayerId)}`;
+  roomStreetEl.textContent = `Current stage: ${formatStreet(room.street)}`;
   
   const totalPot = Array.isArray(room.pots) ? room.pots.reduce((sum, p) => sum + p.amount, 0) : 0;
   potEl.textContent = String(totalPot);
