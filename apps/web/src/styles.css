@@ -8,6 +8,26 @@
   --danger: #b91c1c;
   --stroke: #d9e2ec;
   --shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+  --body-bg-1: #fff7ed;
+  --body-bg-2: #e6fffa;
+  --body-bg-3: #f9fafb;
+  --body-bg-4: #f4f3ee;
+}
+
+[data-theme="dark"] {
+  --bg: #111827;
+  --bg-elev: #1f2937;
+  --ink: #f3f4f6;
+  --muted: #9ca3af;
+  --accent: #ea580c;
+  --accent-2: #14b8a6;
+  --danger: #ef4444;
+  --stroke: #374151;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  --body-bg-1: #1c1008;
+  --body-bg-2: #0a1f1d;
+  --body-bg-3: #111827;
+  --body-bg-4: #111827;
 }
 
 * {
@@ -18,10 +38,11 @@ body {
   margin: 0;
   font-family: "Space Grotesk", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at 20% 20%, #fff7ed 0%, transparent 45%),
-    radial-gradient(circle at 80% 75%, #e6fffa 0%, transparent 35%),
-    linear-gradient(160deg, #f9fafb 0%, #f4f3ee 100%);
+  background: radial-gradient(circle at 20% 20%, var(--body-bg-1) 0%, transparent 45%),
+    radial-gradient(circle at 80% 75%, var(--body-bg-2) 0%, transparent 35%),
+    linear-gradient(160deg, var(--body-bg-3) 0%, var(--body-bg-4) 100%);
   min-height: 100vh;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
 .bg-blur {
@@ -108,12 +129,12 @@ body {
   border: 1px solid var(--stroke);
   border-radius: 12px;
   padding: 0.8rem;
-  background: #ffffff;
+  background: var(--bg-elev);
 }
 
 .stats-grid article.priority-stat {
   border-color: color-mix(in srgb, var(--accent-2) 45%, var(--stroke));
-  background: linear-gradient(165deg, #ecfeff 0%, #ffffff 100%);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-2) 8%, var(--bg-elev)) 0%, var(--bg-elev) 100%);
 }
 
 .stats-grid article.priority-stat strong {
@@ -132,7 +153,7 @@ body {
 }
 
 .card {
-  background: #ffffff;
+  background: var(--bg-elev);
   border: 1px solid var(--stroke);
   border-radius: 14px;
   padding: 0.9rem;
@@ -210,6 +231,25 @@ button.action.danger {
   background: var(--danger);
 }
 
+.theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 100;
+  background: var(--bg-elev);
+  border: 1px solid var(--stroke);
+  color: var(--ink);
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  min-height: 38px;
+  min-width: 38px;
+  width: auto;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
 .inline-fields,
 .actions-row,
 .room-header,
@@ -245,7 +285,7 @@ button.action.danger {
   font-size: 0.84rem;
   text-transform: none;
   letter-spacing: 0.02em;
-  background: #ffffff;
+  background: var(--bg-elev);
   color: var(--muted);
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
@@ -256,13 +296,13 @@ button.action.danger {
 
 .room-meta .status-pill {
   border-color: color-mix(in srgb, var(--accent-2) 45%, var(--stroke));
-  background: #ecfeff;
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--bg-elev));
   color: var(--accent-2);
 }
 
 .room-meta .stage-pill {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--stroke));
-  background: #fff7ed;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
   color: var(--accent);
 }
 
@@ -283,7 +323,7 @@ li {
 
 li.active {
   border-color: var(--accent-2);
-  background: #f0fdfa;
+  background: color-mix(in srgb, var(--accent-2) 8%, var(--bg-elev));
 }
 
 li.me {
@@ -301,7 +341,7 @@ li.me {
 .feedback {
   min-height: 1.4rem;
   margin: 0.75rem 0;
-  color: #7f1d1d;
+  color: var(--danger);
   font-weight: 600;
 }
 
@@ -362,7 +402,7 @@ li.me {
   border: 1px solid var(--stroke);
   border-radius: 8px;
   padding: 0.2rem 0.4rem;
-  background: #ffffff;
+  background: var(--bg-elev);
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.82rem;
   font-weight: 600;
@@ -371,11 +411,11 @@ li.me {
 }
 
 .card-chip.red {
-  color: #b91c1c;
+  color: var(--danger);
 }
 
 .card-chip.black {
-  color: #111827;
+  color: var(--ink);
 }
 
 .showdown-box {
@@ -459,7 +499,7 @@ li.me {
   }
 
   /* Larger button sizing for touch targets */
-  button,
+  button:not(.theme-toggle),
   button.action {
     width: 100%;
     padding: 1rem;

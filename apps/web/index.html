@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle dark mode">🌙</button>
     <div class="bg-blur bg-blur-left"></div>
     <div class="bg-blur bg-blur-right"></div>
     <main class="shell">
@@ -158,6 +159,34 @@
     </main>
 
     <script src="./src/config.js"></script>
+    <script>
+      // Apply saved theme before page renders to avoid flash
+      (function () {
+        const saved = localStorage.getItem("no-chip-theme");
+        if (saved === "dark") document.documentElement.setAttribute("data-theme", "dark");
+        window.addEventListener("DOMContentLoaded", function () {
+          const btn = document.getElementById("theme-toggle");
+          function applyTheme(theme) {
+            if (theme === "dark") {
+              document.documentElement.setAttribute("data-theme", "dark");
+              btn.textContent = "☀️";
+              btn.title = "Switch to light mode";
+            } else {
+              document.documentElement.removeAttribute("data-theme");
+              btn.textContent = "🌙";
+              btn.title = "Switch to dark mode";
+            }
+          }
+          applyTheme(saved || "light");
+          btn.addEventListener("click", function () {
+            const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+            const next = isDark ? "light" : "dark";
+            localStorage.setItem("no-chip-theme", next);
+            applyTheme(next);
+          });
+        });
+      })();
+    </script>
     <script type="module" src="./src/bootstrap.js"></script>
   </body>
 </html>
