@@ -79,7 +79,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "chipless-server" });
+  res.json({ ok: true, service: "no-chip-server" });
 });
 
 const httpServer = createServer(app);
@@ -764,6 +764,6 @@ io.on("connection", (socket) => {
 
 const port = Number(process.env.PORT ?? 3001);
 httpServer.listen(port, () => {
-  console.log(`chipless server listening on port ${port}`);
+  console.log(`No-Chip Poker server listening on port ${port}`);
 });
 

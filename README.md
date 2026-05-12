@@ -1,6 +1,6 @@
-# Poker Chip Tracker
+# No-Chip Poker
 
-A better Chipless-style poker companion app for in-person games.
+A better no-chip poker companion app for in-person games.
 
 ## Workspace
 
@@ -44,6 +44,7 @@ This app is split into:
    - PORT is provided by Render automatically
 
 If your repo is under a project path, add that full Pages origin to CORS_ORIGINS.
+If you rename the GitHub repository to match the new app name, the Pages URL will change to the new repo slug automatically.
 
 ### 2) Point frontend to backend
 
