@@ -161,18 +161,25 @@ input,
 select {
   border: 1px solid var(--stroke);
   border-radius: 10px;
-  padding: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  min-height: 44px;
+  font-size: 1rem;
 }
 
 button {
   border: 0;
   border-radius: 11px;
-  padding: 0.6rem 0.85rem;
+  padding: 0.8rem 1.2rem;
+  min-height: 44px;
+  min-width: 44px;
   background: var(--accent);
   color: white;
   font-weight: 700;
   cursor: pointer;
   transition: transform 120ms ease, filter 180ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 button:hover {
@@ -190,8 +197,9 @@ button.ghost {
 
 button.action {
   background: #374151;
-  padding: 0.6rem 0.85rem;
+  padding: 0.8rem 1rem;
   font-size: 0.95rem;
+  min-height: 44px;
 }
 
 button.action.ghost {
@@ -412,5 +420,170 @@ li.me {
   .panel {
     padding: 0.8rem;
     border-radius: 14px;
+  }
+
+  /* Mobile-optimized form layout */
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* Control and room grids stack vertically on mobile */
+  .control-grid,
+  .room-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* Mobile-optimized stats grid - 2 columns for better readability */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.8rem;
+    margin: 1.2rem 0;
+  }
+
+  .stats-grid article {
+    padding: 1rem 0.8rem;
+  }
+
+  .stats-grid p {
+    font-size: 0.8rem;
+  }
+
+  .stats-grid strong {
+    font-size: 1.1rem;
+  }
+
+  .stats-grid article.priority-stat strong {
+    font-size: 1.3rem;
+  }
+
+  /* Larger button sizing for touch targets */
+  button,
+  button.action {
+    width: 100%;
+    padding: 1rem;
+    font-size: 1rem;
+    margin-top: 0.5rem;
+  }
+
+  button:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Ensure inputs fill mobile width */
+  input,
+  select {
+    width: 100%;
+    padding: 0.9rem;
+  }
+
+  label {
+    margin-bottom: 0.8rem;
+    font-size: 0.95rem;
+  }
+
+  /* Stack action buttons vertically on small screens */
+  .actions-row {
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .actions-row button {
+    width: 100%;
+  }
+
+  /* Stack inline fields vertically */
+  .inline-fields {
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-top: 0.8rem;
+  }
+
+  .inline-fields input {
+    flex: 1;
+    width: 100%;
+  }
+
+  .inline-fields button {
+    width: 100%;
+  }
+
+  /* Improve modal on mobile */
+  .modal-content {
+    max-width: 95vw;
+    padding: 1.2rem;
+    border-radius: 14px;
+    max-height: 85vh;
+  }
+
+  /* Better spacing for player list */
+  li {
+    padding: 0.7rem;
+    font-size: 0.92rem;
+    margin-bottom: 0.2rem;
+  }
+
+  /* Header layout on mobile */
+  .room-header {
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .room-meta {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    width: 100%;
+  }
+
+  .room-meta span {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+  }
+
+  /* Card padding on mobile */
+  .card {
+    padding: 1rem;
+  }
+
+  .card h3 {
+    margin-top: 0;
+    margin-bottom: 0.8rem;
+    font-size: 1.1rem;
+  }
+
+  /* Hero text scaling */
+  .hero h1 {
+    font-size: 2rem;
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+  }
+
+  /* Showdown actions on mobile */
+  .showdown-actions {
+    flex-direction: column !important;
+    gap: 0.6rem !important;
+  }
+
+  .showdown-actions button {
+    width: 100%;
+  }
+
+  /* Transfer host section on mobile */
+  div[style*="margin-top: 1rem"] {
+    margin-top: 1rem !important;
+  }
+
+  /* Chat input layout on mobile */
+  #chat-input {
+    width: 100%;
+  }
+
+  #chat-send-button {
+    width: 100%;
+    margin-top: 0.5rem;
   }
 }
