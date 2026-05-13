@@ -120,6 +120,15 @@ function formatHandStatus(room, playerId) {
   return player.inHand ? "Playing" : "Out";
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function readSessionStore() {
   const raw = localStorage.getItem(SESSION_STORAGE_KEY);
   if (!raw) {
@@ -433,7 +442,10 @@ function renderRoom(room) {
   chatMessagesEl.innerHTML =
     (room.messages || [])
       .slice(-20)
-      .map((msg) => `<div style="font-size: 0.9rem; margin-bottom: 0.4rem;"><strong>${msg.playerName}:</strong> ${msg.text}</div>`)
+      .map(
+        (msg) =>
+          `<div style="font-size: 0.9rem; margin-bottom: 0.4rem;"><strong>${escapeHtml(msg.playerName)}:</strong> ${escapeHtml(msg.text)}</div>`
+      )
       .join("") || "<div style='color: var(--muted); font-size: 0.9rem;'>No messages yet.</div>";
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
 
@@ -644,8 +656,9 @@ function sendChatMessage() {
 }
 
 chatSendButton.addEventListener("click", sendChatMessage);
-chatInput.addEventListener("keypress", (e) => {
+chatInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
+    e.preventDefault();
     sendChatMessage();
   }
 });
