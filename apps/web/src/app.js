@@ -13,6 +13,8 @@ let currentPlayerId = "";
 let currentSessionId = "";
 let raiseMode = false;
 let isSocketConnected = false;
+const pendingChatById = new Map();
+const pendingChatOrder = [];
 const SESSION_STORAGE_KEY = "chipless-sessions";
 const LAST_SESSION_ROOM_CODE_KEY = "chipless-last-room-code";
 
@@ -133,6 +135,9 @@ function escapeHtml(value) {
 
 function formatTimestamp(timestamp) {
   const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "now";
+  }
   const now = new Date();
   const diffMs = now - date;
   const diffSecs = Math.floor(diffMs / 1000);
@@ -148,6 +153,108 @@ function formatTimestamp(timestamp) {
   } else {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
+}
+
+function createClientMessageId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function updateConnectionStatus(state) {
+  if (!connectionStatusEl) {
+    return;
+  }
+
+  if (state === "online") {
+    connectionStatusEl.textContent = "● Connected";
+    connectionStatusEl.className = "connection-status online";
+    return;
+  }
+
+  if (state === "reconnecting") {
+    connectionStatusEl.textContent = "● Reconnecting...";
+    connectionStatusEl.className = "connection-status reconnecting";
+    return;
+  }
+
+  connectionStatusEl.textContent = "● Disconnected";
+  connectionStatusEl.className = "connection-status offline";
+}
+
+function addPendingChatMessage(message) {
+  pendingChatById.set(message.clientMessageId, message);
+  pendingChatOrder.push(message.clientMessageId);
+}
+
+function markPendingChatMessage(clientMessageId, status) {
+  const existing = pendingChatById.get(clientMessageId);
+  if (!existing) {
+    return;
+  }
+
+  pendingChatById.set(clientMessageId, {
+    ...existing,
+    status,
+  });
+}
+
+function removePendingChatMessage(clientMessageId) {
+  pendingChatById.delete(clientMessageId);
+  const index = pendingChatOrder.indexOf(clientMessageId);
+  if (index >= 0) {
+    pendingChatOrder.splice(index, 1);
+  }
+}
+
+function pendingMessagesList() {
+  return pendingChatOrder
+    .map((id) => pendingChatById.get(id))
+    .filter(Boolean);
+}
+
+function flushPendingChatMessages() {
+  if (!currentRoom || !currentPlayerId || !isSocketConnected) {
+    return;
+  }
+
+  pendingMessagesList().forEach((pending) => {
+    if (pending.status === "sending") {
+      return;
+    }
+
+    emit({
+      type: "send_message",
+      roomId: currentRoom.id,
+      playerId: currentPlayerId,
+      text: pending.text,
+      clientMessageId: pending.clientMessageId,
+    });
+    markPendingChatMessage(pending.clientMessageId, "sending");
+  });
+}
+
+function reconcileDeliveredChatMessages(room) {
+  (room.messages || []).forEach((msg) => {
+    if (msg.playerId !== currentPlayerId || !msg.clientMessageId) {
+      return;
+    }
+
+    removePendingChatMessage(msg.clientMessageId);
+  });
+}
+
+function renderChatMessages(room) {
+  const serverMessages = (room.messages || []).slice(-20).map((msg) => {
+    return `<div style="font-size: 0.9rem; margin-bottom: 0.4rem;"><strong>${escapeHtml(msg.playerName)}</strong> <span style="color: var(--muted); font-size: 0.85rem;">${formatTimestamp(msg.at)}</span>: ${escapeHtml(msg.text)}</div>`;
+  });
+
+  const pendingMessages = pendingMessagesList().map((pending) => {
+    const statusLabel = pending.status === "queued" ? "queued" : "sending";
+    return `<div style="font-size: 0.9rem; margin-bottom: 0.4rem; opacity: 0.78;"><strong>You</strong> <span style="color: var(--muted); font-size: 0.85rem;">${formatTimestamp(pending.at)} • ${statusLabel}</span>: ${escapeHtml(pending.text)}</div>`;
+  });
+
+  const allMessages = [...serverMessages, ...pendingMessages];
+  chatMessagesEl.innerHTML = allMessages.join("") || "<div style='color: var(--muted); font-size: 0.9rem;'>No messages yet.</div>";
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
 }
 
 function readSessionStore() {
@@ -460,15 +567,8 @@ function renderRoom(room) {
       })
       .join("") || "<li>No actions yet.</li>";
 
-  chatMessagesEl.innerHTML =
-    (room.messages || [])
-      .slice(-20)
-      .map(
-        (msg) =>
-          `<div style="font-size: 0.9rem; margin-bottom: 0.4rem;"><strong>${escapeHtml(msg.playerName)}</strong> <span style="color: var(--muted); font-size: 0.85rem;">${formatTimestamp(msg.at)}</span>: ${escapeHtml(msg.text)}</div>`
-      )
-      .join("") || "<div style='color: var(--muted); font-size: 0.9rem;'>No messages yet.</div>";
-  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  reconcileDeliveredChatMessages(room);
+  renderChatMessages(room);
 
   renderActions(room, currentPlayerId);
 
@@ -539,8 +639,7 @@ joinRoomButton.addEventListener("click", () => {
 });
 
 rejoinRoomButton.addEventListener("click", () => {
-  const typedRoomCode = joinRoomCode.value.trim().toUpperCase();
-  const cached = readSession(typedRoomCode);
+  const cached = readSession();
   if (!cached) {
     setFeedback("No previous session found in this browser.", true);
     return;
@@ -667,13 +766,28 @@ function sendChatMessage() {
   const text = chatInput.value.trim();
   if (!text) return;
 
-  emit({
-    type: "send_message",
-    roomId: currentRoom.id,
-    playerId: currentPlayerId,
+  const clientMessageId = createClientMessageId();
+  addPendingChatMessage({
+    clientMessageId,
     text,
+    at: Date.now(),
+    status: isSocketConnected ? "sending" : "queued",
   });
+
+  if (isSocketConnected) {
+    emit({
+      type: "send_message",
+      roomId: currentRoom.id,
+      playerId: currentPlayerId,
+      text,
+      clientMessageId,
+    });
+  } else {
+    setFeedback("Offline: message queued and will send on reconnect.", true);
+  }
+
   chatInput.value = "";
+  renderChatMessages(currentRoom);
 }
 
 chatSendButton.addEventListener("click", sendChatMessage);
@@ -686,20 +800,31 @@ chatInput.addEventListener("keydown", (e) => {
 
 socket.on("connect", () => {
   isSocketConnected = true;
-  if (connectionStatusEl) {
-    connectionStatusEl.textContent = "● Connected";
-    connectionStatusEl.className = "connection-status online";
-  }
+  updateConnectionStatus("online");
+  flushPendingChatMessages();
   setFeedback("Connected to realtime server.");
 });
 
 socket.on("disconnect", () => {
   isSocketConnected = false;
-  if (connectionStatusEl) {
-    connectionStatusEl.textContent = "● Disconnected";
-    connectionStatusEl.className = "connection-status offline";
+  pendingMessagesList().forEach((pending) => {
+    if (pending.status === "sending") {
+      markPendingChatMessage(pending.clientMessageId, "queued");
+    }
+  });
+  updateConnectionStatus("offline");
+  if (currentRoom) {
+    renderChatMessages(currentRoom);
   }
   setFeedback("Disconnected. You can rejoin your room when connection returns.", true);
+});
+
+socket.io.on("reconnect_attempt", () => {
+  updateConnectionStatus("reconnecting");
+});
+
+socket.io.on("reconnect_error", () => {
+  updateConnectionStatus("reconnecting");
 });
 
 socket.on("event", (serverEvent) => {
@@ -754,7 +879,7 @@ socket.on("event", (serverEvent) => {
 });
 
 if (sessionCount() > 0) {
-  setFeedback(`Saved sessions found (${sessionCount()}). Enter a room code and click Rejoin Last Session.`);
+  setFeedback(`Saved sessions found (${sessionCount()}). Use Rejoin Saved Session directly - no fields required.`);
 }
 
 void currentSessionId;

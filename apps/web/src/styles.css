@@ -159,6 +159,13 @@ body {
   padding: 0.9rem;
 }
 
+.card-hint {
+  margin-top: -0.2rem;
+  margin-bottom: 0.8rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 h2,
 h3 {
   margin-top: 0;
@@ -270,6 +277,11 @@ button.action.danger {
 .connection-status.offline {
   background: color-mix(in srgb, var(--danger) 15%, transparent);
   color: var(--danger);
+}
+
+.connection-status.reconnecting {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
 }
 
 .inline-fields,

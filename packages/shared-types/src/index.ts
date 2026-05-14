@@ -57,6 +57,7 @@ export interface ChatMessage {
   playerName: string;
   text: string;
   at: number;
+  clientMessageId?: string;
 }
 
 export type ActionKind = "fold" | "check" | "call" | "raise" | "all_in";
@@ -105,7 +106,7 @@ export type ClientEvent =
   | { type: "update_blinds"; roomId: string; actorPlayerId: string; blinds: BlindSettings }
   | { type: "submit_action"; roomId: string; actorPlayerId: string; action: ActionKind; amount?: number }
   | { type: "transfer_host"; roomId: string; actorPlayerId: string; newHostPlayerId: string }
-  | { type: "send_message"; roomId: string; playerId: string; text: string }
+  | { type: "send_message"; roomId: string; playerId: string; text: string; clientMessageId?: string }
   | { type: "declare_winners"; roomId: string; actorPlayerId: string; winnerIds: string[] };
 
 export interface ClientToServerEvents {

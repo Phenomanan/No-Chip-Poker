@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { customAlphabet } from "nanoid";
 import { Server } from "socket.io";
 
@@ -103,8 +104,165 @@ const playerIdToRoomId = new Map<string, string>();
 const socketToPlayerId = new Map<string, string>();
 const roomStreetActionState = new Map<string, { street: RoomState["street"]; actedPlayerIds: Set<string> }>();
 
+const stateFilePath = process.env.STATE_FILE_PATH ?? path.resolve(process.cwd(), "data", "state.json");
+const roomTtlMs = Number(process.env.ROOM_TTL_MS ?? 1000 * 60 * 60 * 24);
+const roomCleanupIntervalMs = Number(process.env.ROOM_CLEANUP_INTERVAL_MS ?? 1000 * 60 * 5);
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
 const createRoomCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const createId = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 12);
+
+interface PersistedActionState {
+  street: RoomState["street"];
+  actedPlayerIds: string[];
+}
+
+interface PersistedState {
+  rooms: RoomState[];
+  roomCodeToId: Array<[string, string]>;
+  sessionToPlayerId: Array<[string, string]>;
+  playerIdToRoomId: Array<[string, string]>;
+  roomStreetActionState: Array<[string, PersistedActionState]>;
+}
+
+function serializeState(): PersistedState {
+  return {
+    rooms: [...roomById.values()],
+    roomCodeToId: [...roomCodeToId.entries()],
+    sessionToPlayerId: [...sessionToPlayerId.entries()],
+    playerIdToRoomId: [...playerIdToRoomId.entries()],
+    roomStreetActionState: [...roomStreetActionState.entries()].map(([roomId, state]) => [
+      roomId,
+      {
+        street: state.street,
+        actedPlayerIds: [...state.actedPlayerIds],
+      },
+    ]),
+  };
+}
+
+function hydrateState(snapshot: PersistedState): void {
+  roomById.clear();
+  roomCodeToId.clear();
+  sessionToPlayerId.clear();
+  playerIdToRoomId.clear();
+  roomStreetActionState.clear();
+
+  snapshot.rooms.forEach((room) => {
+    roomById.set(room.id, room);
+  });
+
+  snapshot.roomCodeToId.forEach(([code, roomId]) => {
+    if (roomById.has(roomId)) {
+      roomCodeToId.set(code, roomId);
+    }
+  });
+
+  snapshot.sessionToPlayerId.forEach(([sessionId, playerId]) => {
+    sessionToPlayerId.set(sessionId, playerId);
+  });
+
+  snapshot.playerIdToRoomId.forEach(([playerId, roomId]) => {
+    if (roomById.has(roomId)) {
+      playerIdToRoomId.set(playerId, roomId);
+    }
+  });
+
+  snapshot.roomStreetActionState.forEach(([roomId, state]) => {
+    if (roomById.has(roomId)) {
+      roomStreetActionState.set(roomId, {
+        street: state.street,
+        actedPlayerIds: new Set(state.actedPlayerIds),
+      });
+    }
+  });
+}
+
+async function persistStateNow(): Promise<void> {
+  const dir = path.dirname(stateFilePath);
+  await mkdir(dir, { recursive: true });
+  await writeFile(stateFilePath, JSON.stringify(serializeState()), "utf8");
+}
+
+function scheduleStatePersistence(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+  }
+
+  persistTimer = setTimeout(() => {
+    void persistStateNow().catch((error) => {
+      console.error("[persist] Failed to write state snapshot", error);
+    });
+    persistTimer = null;
+  }, 250);
+}
+
+async function restoreStateFromDisk(): Promise<void> {
+  try {
+    const raw = await readFile(stateFilePath, "utf8");
+    const parsed = JSON.parse(raw) as PersistedState;
+    if (!parsed || !Array.isArray(parsed.rooms)) {
+      return;
+    }
+
+    hydrateState(parsed);
+    console.log(`[persist] Restored ${roomById.size} room(s) from ${stateFilePath}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error("[persist] Failed to restore state", error);
+    }
+  }
+}
+
+function removeRoom(roomId: string): void {
+  const room = roomById.get(roomId);
+  if (!room) {
+    return;
+  }
+
+  roomById.delete(roomId);
+  roomCodeToId.delete(room.code);
+  roomStreetActionState.delete(roomId);
+
+  room.players.forEach((player) => {
+    playerIdToRoomId.delete(player.id);
+    socketToPlayerId.forEach((mappedPlayerId, socketId) => {
+      if (mappedPlayerId === player.id) {
+        socketToPlayerId.delete(socketId);
+      }
+    });
+  });
+
+  sessionToPlayerId.forEach((playerId, sessionId) => {
+    if (room.players.some((player) => player.id === playerId)) {
+      sessionToPlayerId.delete(sessionId);
+    }
+  });
+}
+
+function cleanupExpiredRooms(): void {
+  if (!Number.isFinite(roomTtlMs) || roomTtlMs <= 0) {
+    return;
+  }
+
+  const now = Date.now();
+  let removed = 0;
+  roomById.forEach((room) => {
+    if (room.status === "in_hand") {
+      return;
+    }
+
+    if (now - room.updatedAt > roomTtlMs) {
+      removeRoom(room.id);
+      removed += 1;
+    }
+  });
+
+  if (removed > 0) {
+    console.log(`[cleanup] Removed ${removed} expired room(s)`);
+    scheduleStatePersistence();
+  }
+}
 
 function emitRoomState(roomId: string): void {
   const room = roomById.get(roomId);
@@ -117,6 +275,7 @@ function emitRoomState(roomId: string): void {
   console.log(`[emitRoomState] Broadcasting room ${room.code} with ${room.players.length} players to room namespace ${roomId}`);
   room.players.forEach(p => console.log(`  - ${p.displayName} (${p.id})`));
   io.to(roomId).emit("event", { type: "room_state", room });
+  scheduleStatePersistence();
 }
 
 function sanitizeRole(role: Role | undefined): Role {
@@ -648,12 +807,22 @@ io.on("connection", (socket) => {
         return;
       }
 
+      const clientMessageId = event.clientMessageId?.trim().slice(0, 80);
+      if (
+        clientMessageId &&
+        room.messages.some((message) => message.playerId === event.playerId && message.clientMessageId === clientMessageId)
+      ) {
+        emitRoomState(room.id);
+        return;
+      }
+
       const message = {
         id: createId(),
         playerId: event.playerId,
         playerName: player.displayName,
         text: messageText,
         at: Date.now(),
+        clientMessageId,
       };
 
       room.messages.push(message);
@@ -763,7 +932,15 @@ io.on("connection", (socket) => {
 });
 
 const port = Number(process.env.PORT ?? 3001);
-httpServer.listen(port, () => {
-  console.log(`No-Chip Poker server listening on port ${port}`);
-});
+
+setInterval(cleanupExpiredRooms, Number.isFinite(roomCleanupIntervalMs) ? roomCleanupIntervalMs : 1000 * 60 * 5);
+
+async function startServer(): Promise<void> {
+  await restoreStateFromDisk();
+  httpServer.listen(port, () => {
+    console.log(`No-Chip Poker server listening on port ${port}`);
+  });
+}
+
+void startServer();
 

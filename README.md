@@ -21,6 +21,8 @@ Browser-based no-chip poker companion app for in-person games.
 Notes:
 - In non-production mode, the server also serves the frontend from `apps/web`.
 - Localhost uses same-origin Socket.IO (`/socket.io/socket.io.js`).
+- Server snapshots room/session state to disk (`STATE_FILE_PATH`) and restores on restart.
+- Idle rooms are cleaned up automatically with TTL controls (`ROOM_TTL_MS`, `ROOM_CLEANUP_INTERVAL_MS`).
 
 ## Production runbook (GitHub Pages + Render)
 
@@ -43,6 +45,9 @@ Set environment variables:
 - `CORS_ORIGINS=https://phenomanan.github.io,https://phenomanan.github.io/No-Chip-Poker,http://localhost:3001`
 - `RATE_LIMIT_WINDOW_MS=60000`
 - `RATE_LIMIT_MAX=200`
+- `STATE_FILE_PATH=/opt/render/project/src/data/state.json`
+- `ROOM_TTL_MS=86400000`
+- `ROOM_CLEANUP_INTERVAL_MS=300000`
 - `NODE_ENV=production`
 
 Render provides `PORT` automatically.
