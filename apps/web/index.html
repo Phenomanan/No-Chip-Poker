@@ -135,7 +135,10 @@
             <ul id="log"></ul>
           </div>
           <div class="card">
-            <h3>Chat</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+              <h3 style="margin: 0;">Chat</h3>
+              <span id="connection-status" class="connection-status online" title="Connection status">● Connected</span>
+            </div>
             <div id="chat-messages" style="max-height: 200px; overflow-y: auto; margin-bottom: 0.8rem;"></div>
             <div class="inline-fields">
               <input id="chat-input" type="text" placeholder="Type message..." />

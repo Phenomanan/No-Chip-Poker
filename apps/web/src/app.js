@@ -12,12 +12,14 @@ let currentRoom = null;
 let currentPlayerId = "";
 let currentSessionId = "";
 let raiseMode = false;
+let isSocketConnected = false;
 const SESSION_STORAGE_KEY = "chipless-sessions";
 const LAST_SESSION_ROOM_CODE_KEY = "chipless-last-room-code";
 
 const feedback = document.querySelector("#feedback");
 const authPanel = document.querySelector("#auth-panel");
 const roomPanel = document.querySelector("#room-panel");
+const connectionStatusEl = document.querySelector("#connection-status");
 
 const roomCodeEl = document.querySelector("#room-code");
 const roomNameEl = document.querySelector("#room-name");
@@ -127,6 +129,25 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatTimestamp(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+
+  if (diffSecs < 60) {
+    return "now";
+  } else if (diffMins < 60) {
+    return `${diffMins}m ago`;
+  } else if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  } else {
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
 }
 
 function readSessionStore() {
@@ -444,7 +465,7 @@ function renderRoom(room) {
       .slice(-20)
       .map(
         (msg) =>
-          `<div style="font-size: 0.9rem; margin-bottom: 0.4rem;"><strong>${escapeHtml(msg.playerName)}:</strong> ${escapeHtml(msg.text)}</div>`
+          `<div style="font-size: 0.9rem; margin-bottom: 0.4rem;"><strong>${escapeHtml(msg.playerName)}</strong> <span style="color: var(--muted); font-size: 0.85rem;">${formatTimestamp(msg.at)}</span>: ${escapeHtml(msg.text)}</div>`
       )
       .join("") || "<div style='color: var(--muted); font-size: 0.9rem;'>No messages yet.</div>";
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
@@ -664,10 +685,20 @@ chatInput.addEventListener("keydown", (e) => {
 });
 
 socket.on("connect", () => {
+  isSocketConnected = true;
+  if (connectionStatusEl) {
+    connectionStatusEl.textContent = "● Connected";
+    connectionStatusEl.className = "connection-status online";
+  }
   setFeedback("Connected to realtime server.");
 });
 
 socket.on("disconnect", () => {
+  isSocketConnected = false;
+  if (connectionStatusEl) {
+    connectionStatusEl.textContent = "● Disconnected";
+    connectionStatusEl.className = "connection-status offline";
+  }
   setFeedback("Disconnected. You can rejoin your room when connection returns.", true);
 });
 
