@@ -12,6 +12,8 @@ import { Server } from "socket.io";
 import { calculatePayouts, calculatePots, canStartHand, validateAction, validateBlinds } from "../../../packages/rules-engine/src/index.js";
 import type {
   ActionEvent,
+  BlindScheduleState,
+  BlindVoteState,
   BlindSettings,
   ClientToServerEvents,
   CreateRoomInput,
@@ -125,6 +127,39 @@ interface PersistedState {
   roomStreetActionState: Array<[string, PersistedActionState]>;
 }
 
+const DEFAULT_BLIND_LEVEL_DURATION_SECONDS = 15 * 60;
+
+function createDefaultBlindSchedule(): BlindScheduleState {
+  return {
+    enabled: false,
+    levelDurationSeconds: DEFAULT_BLIND_LEVEL_DURATION_SECONDS,
+    levelNumber: 1,
+    nextLevelAt: null,
+  };
+}
+
+function normalizeRoomState(room: RoomState): RoomState {
+  room.blindVote = room.blindVote ?? null;
+
+  const schedule = room.blindSchedule;
+  if (!schedule || typeof schedule !== "object") {
+    room.blindSchedule = createDefaultBlindSchedule();
+    return room;
+  }
+
+  room.blindSchedule = {
+    enabled: Boolean(schedule.enabled),
+    levelDurationSeconds:
+      Number.isFinite(schedule.levelDurationSeconds) && schedule.levelDurationSeconds >= 60
+        ? Math.floor(schedule.levelDurationSeconds)
+        : DEFAULT_BLIND_LEVEL_DURATION_SECONDS,
+    levelNumber: Number.isFinite(schedule.levelNumber) && schedule.levelNumber >= 1 ? Math.floor(schedule.levelNumber) : 1,
+    nextLevelAt: Number.isFinite(schedule.nextLevelAt) ? Number(schedule.nextLevelAt) : null,
+  };
+
+  return room;
+}
+
 function serializeState(): PersistedState {
   return {
     rooms: [...roomById.values()],
@@ -149,7 +184,7 @@ function hydrateState(snapshot: PersistedState): void {
   roomStreetActionState.clear();
 
   snapshot.rooms.forEach((room) => {
-    roomById.set(room.id, room);
+    roomById.set(room.id, normalizeRoomState(room));
   });
 
   snapshot.roomCodeToId.forEach(([code, roomId]) => {
@@ -483,8 +518,84 @@ function createRoom(input: CreateRoomInput, host: Player): RoomState {
     actionLog: [],
     payouts: [],
     messages: [],
+    blindVote: null,
+    blindSchedule: createDefaultBlindSchedule(),
     updatedAt: Date.now(),
   };
+}
+
+function eligibleBlindVotePlayerIds(room: RoomState): string[] {
+  return room.players.filter((p) => p.role !== "spectator").map((p) => p.id);
+}
+
+function majorityThreshold(totalVoters: number): number {
+  return Math.floor(totalVoters / 2) + 1;
+}
+
+function resolveBlindVoteIfPossible(room: RoomState): void {
+  const vote = room.blindVote;
+  if (!vote || vote.status !== "open") {
+    return;
+  }
+
+  const totalVoters = vote.eligiblePlayerIds.length;
+  const threshold = majorityThreshold(totalVoters);
+  const yesCount = vote.yesVotes.length;
+  const noCount = vote.noVotes.length;
+  const remainingVotes = totalVoters - yesCount - noCount;
+
+  if (yesCount >= threshold) {
+    vote.status = "passed";
+    vote.resolvedAt = Date.now();
+    room.blinds = {
+      smallBlind: room.blinds.smallBlind * vote.multiplier,
+      bigBlind: room.blinds.bigBlind * vote.multiplier,
+    };
+    return;
+  }
+
+  if (yesCount + remainingVotes < threshold) {
+    vote.status = "failed";
+    vote.resolvedAt = Date.now();
+  }
+}
+
+function scheduleNextBlindLevel(room: RoomState): void {
+  room.blindSchedule.nextLevelAt = Date.now() + room.blindSchedule.levelDurationSeconds * 1000;
+}
+
+function tickBlindSchedules(): void {
+  const now = Date.now();
+  roomById.forEach((room) => {
+    const schedule = room.blindSchedule;
+    if (!schedule.enabled || room.status === "ended") {
+      return;
+    }
+
+    if (!schedule.nextLevelAt) {
+      scheduleNextBlindLevel(room);
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (now < schedule.nextLevelAt) {
+      return;
+    }
+
+    room.blinds = {
+      smallBlind: room.blinds.smallBlind * 2,
+      bigBlind: room.blinds.bigBlind * 2,
+    };
+    schedule.levelNumber += 1;
+    scheduleNextBlindLevel(room);
+
+    if (room.blindVote?.status === "open") {
+      room.blindVote.status = "failed";
+      room.blindVote.resolvedAt = Date.now();
+    }
+
+    emitRoomState(room.id);
+  });
 }
 
 function appendAction(room: RoomState, playerId: string, action: ActionEvent["action"], amount?: number): void {
@@ -739,6 +850,12 @@ io.on("connection", (socket) => {
       }
 
       appendAction(room, event.actorPlayerId, "check");
+      if (room.blindVote?.status === "open") {
+        room.blindVote = null;
+      }
+      if (room.blindSchedule.enabled && !room.blindSchedule.nextLevelAt) {
+        scheduleNextBlindLevel(room);
+      }
       emitRoomState(room.id);
       return;
     }
@@ -762,6 +879,158 @@ io.on("connection", (socket) => {
       }
 
       room.blinds = event.blinds;
+      if (room.blindVote?.status === "open") {
+        room.blindVote.status = "failed";
+        room.blindVote.resolvedAt = Date.now();
+      }
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "configure_blind_schedule") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (room.hostPlayerId !== event.actorPlayerId) {
+        socket.emit("event", { type: "error", message: "Only host can configure blind schedule." });
+        return;
+      }
+
+      const seconds = Number(event.levelDurationSeconds);
+      if (!Number.isFinite(seconds) || seconds < 60) {
+        socket.emit("event", { type: "error", message: "Blind level duration must be at least 60 seconds." });
+        return;
+      }
+
+      room.blindSchedule.levelDurationSeconds = Math.floor(seconds);
+      if (room.blindSchedule.enabled) {
+        scheduleNextBlindLevel(room);
+      }
+
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "toggle_blind_schedule") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (room.hostPlayerId !== event.actorPlayerId) {
+        socket.emit("event", { type: "error", message: "Only host can toggle blind schedule." });
+        return;
+      }
+
+      room.blindSchedule.enabled = event.enabled;
+      room.blindSchedule.nextLevelAt = event.enabled
+        ? Date.now() + room.blindSchedule.levelDurationSeconds * 1000
+        : null;
+
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "reset_blind_schedule") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (room.hostPlayerId !== event.actorPlayerId) {
+        socket.emit("event", { type: "error", message: "Only host can reset blind schedule." });
+        return;
+      }
+
+      room.blindSchedule.levelNumber = 1;
+      room.blindSchedule.nextLevelAt = room.blindSchedule.enabled
+        ? Date.now() + room.blindSchedule.levelDurationSeconds * 1000
+        : null;
+
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "request_double_blinds_vote") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (room.status !== "waiting") {
+        socket.emit("event", { type: "error", message: "You can only start a blind vote between hands." });
+        return;
+      }
+
+      const proposer = room.players.find((p) => p.id === event.actorPlayerId);
+      if (!proposer || proposer.role === "spectator") {
+        socket.emit("event", { type: "error", message: "Only players can start a blind vote." });
+        return;
+      }
+
+      if (room.blindVote?.status === "open") {
+        socket.emit("event", { type: "error", message: "A blind vote is already in progress." });
+        return;
+      }
+
+      const eligiblePlayerIds = eligibleBlindVotePlayerIds(room);
+      if (eligiblePlayerIds.length < 2) {
+        socket.emit("event", { type: "error", message: "At least two players are required for a vote." });
+        return;
+      }
+
+      const vote: BlindVoteState = {
+        proposedByPlayerId: event.actorPlayerId,
+        multiplier: 2,
+        createdAt: Date.now(),
+        status: "open",
+        eligiblePlayerIds,
+        yesVotes: [event.actorPlayerId],
+        noVotes: [],
+      };
+
+      room.blindVote = vote;
+      resolveBlindVoteIfPossible(room);
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "cast_double_blinds_vote") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (!room.blindVote || room.blindVote.status !== "open") {
+        socket.emit("event", { type: "error", message: "No active blind vote to vote on." });
+        return;
+      }
+
+      const vote = room.blindVote;
+      if (!vote.eligiblePlayerIds.includes(event.actorPlayerId)) {
+        socket.emit("event", { type: "error", message: "Only active players can vote." });
+        return;
+      }
+
+      if (vote.yesVotes.includes(event.actorPlayerId) || vote.noVotes.includes(event.actorPlayerId)) {
+        socket.emit("event", { type: "error", message: "You have already voted." });
+        return;
+      }
+
+      if (event.approve) {
+        vote.yesVotes.push(event.actorPlayerId);
+      } else {
+        vote.noVotes.push(event.actorPlayerId);
+      }
+
+      resolveBlindVoteIfPossible(room);
       emitRoomState(room.id);
       return;
     }
@@ -934,6 +1203,7 @@ io.on("connection", (socket) => {
 const port = Number(process.env.PORT ?? 3001);
 
 setInterval(cleanupExpiredRooms, Number.isFinite(roomCleanupIntervalMs) ? roomCleanupIntervalMs : 1000 * 60 * 5);
+setInterval(tickBlindSchedules, 1000);
 
 async function startServer(): Promise<void> {
   await restoreStateFromDisk();

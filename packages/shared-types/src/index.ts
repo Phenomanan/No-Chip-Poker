@@ -31,6 +31,24 @@ export interface BlindSettings {
   bigBlind: number;
 }
 
+export interface BlindVoteState {
+  proposedByPlayerId: string;
+  multiplier: number;
+  createdAt: number;
+  resolvedAt?: number;
+  status: "open" | "passed" | "failed";
+  eligiblePlayerIds: string[];
+  yesVotes: string[];
+  noVotes: string[];
+}
+
+export interface BlindScheduleState {
+  enabled: boolean;
+  levelDurationSeconds: number;
+  levelNumber: number;
+  nextLevelAt: number | null;
+}
+
 export interface RoomState {
   id: string;
   code: string;
@@ -48,6 +66,8 @@ export interface RoomState {
   actionLog: ActionEvent[];
   payouts: Payout[];
   messages: ChatMessage[];
+  blindVote: BlindVoteState | null;
+  blindSchedule: BlindScheduleState;
   updatedAt: number;
 }
 
@@ -104,6 +124,11 @@ export type ClientEvent =
   | { type: "rejoin_room"; payload: RejoinInput }
   | { type: "start_hand"; roomId: string; actorPlayerId: string }
   | { type: "update_blinds"; roomId: string; actorPlayerId: string; blinds: BlindSettings }
+  | { type: "request_double_blinds_vote"; roomId: string; actorPlayerId: string }
+  | { type: "cast_double_blinds_vote"; roomId: string; actorPlayerId: string; approve: boolean }
+  | { type: "configure_blind_schedule"; roomId: string; actorPlayerId: string; levelDurationSeconds: number }
+  | { type: "toggle_blind_schedule"; roomId: string; actorPlayerId: string; enabled: boolean }
+  | { type: "reset_blind_schedule"; roomId: string; actorPlayerId: string }
   | { type: "submit_action"; roomId: string; actorPlayerId: string; action: ActionKind; amount?: number }
   | { type: "transfer_host"; roomId: string; actorPlayerId: string; newHostPlayerId: string }
   | { type: "send_message"; roomId: string; playerId: string; text: string; clientMessageId?: string }

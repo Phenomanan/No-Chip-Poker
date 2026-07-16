@@ -94,6 +94,14 @@
             <strong id="blinds">25 / 50</strong>
           </article>
           <article>
+            <p>Blind Level</p>
+            <strong id="blind-level">1</strong>
+          </article>
+          <article>
+            <p>Next Level</p>
+            <strong id="blind-timer">Off</strong>
+          </article>
+          <article>
             <p>Acting Player</p>
             <strong id="acting-player">-</strong>
           </article>
@@ -108,6 +116,17 @@
               <input id="update-bb" type="number" min="1" placeholder="BB" />
             </div>
             <button id="update-blinds-button" class="ghost">Update Blinds</button>
+            <div style="margin-top: 1rem; border-top: 1px solid var(--muted); padding-top: 0.6rem;">
+              <h4 style="margin: 0 0 0.5rem 0;">Blind Schedule</h4>
+              <div class="inline-fields">
+                <input id="schedule-minutes" type="number" min="1" step="1" placeholder="Minutes per level" />
+                <button id="save-schedule-button" class="ghost">Save</button>
+              </div>
+              <div class="inline-fields">
+                <button id="toggle-schedule-button" class="ghost">Start Schedule</button>
+                <button id="reset-schedule-button" class="ghost">Reset Level</button>
+              </div>
+            </div>
             <div style="margin-top: 1rem; border-top: 1px solid var(--muted); padding-top: 0.6rem;">
               <label>Transfer Host <select id="transfer-host-select"><option value="">Select player...</option></select></label>
               <button id="transfer-host-button" class="ghost" style="display: block; margin-top: 0.3rem;">Transfer</button>
@@ -127,6 +146,7 @@
             <h3>Your Actions</h3>
             <button id="hand-rankings-button" class="ghost" style="margin-bottom: 0.8rem; width: 100%;">📖 Hand Rankings</button>
             <div id="actions-container"></div>
+            <div id="blind-vote-panel" class="blind-vote-panel hidden"></div>
           </div>
         </div>
 

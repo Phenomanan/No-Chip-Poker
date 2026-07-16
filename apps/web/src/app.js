@@ -30,12 +30,15 @@ const roomStreetEl = document.querySelector("#room-street");
 const potEl = document.querySelector("#pot");
 const currentBetEl = document.querySelector("#current-bet");
 const blindsEl = document.querySelector("#blinds");
+const blindLevelEl = document.querySelector("#blind-level");
+const blindTimerEl = document.querySelector("#blind-timer");
 const actingPlayerEl = document.querySelector("#acting-player");
 const yourStackEl = document.querySelector("#your-stack");
 const yourCommitmentEl = document.querySelector("#your-commitment");
 const playersEl = document.querySelector("#players");
 const logEl = document.querySelector("#log");
 const actionsContainer = document.querySelector("#actions-container");
+const blindVotePanelEl = document.querySelector("#blind-vote-panel");
 
 const createDisplayName = document.querySelector("#create-display-name");
 const createRoomName = document.querySelector("#create-room-name");
@@ -49,6 +52,7 @@ const joinRole = document.querySelector("#join-role");
 
 const updateSb = document.querySelector("#update-sb");
 const updateBb = document.querySelector("#update-bb");
+const scheduleMinutesInput = document.querySelector("#schedule-minutes");
 const raiseAmountInput = document.querySelector("#raise-amount-input");
 
 const createRoomButton = document.querySelector("#create-room-button");
@@ -56,6 +60,9 @@ const joinRoomButton = document.querySelector("#join-room-button");
 const rejoinRoomButton = document.querySelector("#rejoin-room-button");
 const startHandButton = document.querySelector("#start-hand-button");
 const updateBlindsButton = document.querySelector("#update-blinds-button");
+const saveScheduleButton = document.querySelector("#save-schedule-button");
+const toggleScheduleButton = document.querySelector("#toggle-schedule-button");
+const resetScheduleButton = document.querySelector("#reset-schedule-button");
 const hostControlsCard = document.querySelector("#host-controls-card");
 const transferHostSelect = document.querySelector("#transfer-host-select");
 const transferHostButton = document.querySelector("#transfer-host-button");
@@ -332,6 +339,15 @@ function showRoomPanel(room) {
   renderRoom(room);
 }
 
+function showAuthPanel() {
+  currentRoom = null;
+  currentPlayerId = "";
+  currentSessionId = "";
+  raiseMode = false;
+  authPanel.classList.remove("hidden");
+  roomPanel.classList.add("hidden");
+}
+
 function calculateLegalActions(room, playerId) {
   if (room.actingPlayerId !== playerId || room.status !== "in_hand") {
     return [];
@@ -380,6 +396,262 @@ function calculateMinRaise(room) {
 
 function calculatePotAmount(room) {
   return Array.isArray(room.pots) ? room.pots.reduce((sum, pot) => sum + pot.amount, 0) : 0;
+}
+
+function formatCountdown(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "00:00";
+  }
+
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function renderBlindScheduleSummary(room) {
+  if (!blindLevelEl || !blindTimerEl) {
+    return;
+  }
+
+  const schedule = room.blindSchedule;
+  blindLevelEl.textContent = String(schedule?.levelNumber ?? 1);
+
+  if (!schedule?.enabled) {
+    blindTimerEl.textContent = "Off";
+    return;
+  }
+
+  if (!schedule.nextLevelAt) {
+    blindTimerEl.textContent = "Queued";
+    return;
+  }
+
+  const secondsRemaining = Math.max(0, Math.ceil((schedule.nextLevelAt - Date.now()) / 1000));
+  blindTimerEl.textContent = formatCountdown(secondsRemaining);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+const CHIP_STYLES = {
+  500: { bg: '#7c3aed', rim: '#3b0764', stripe: 'rgba(221,214,254,0.75)', text: '#ede9fe' },
+  100: { bg: '#dc2626', rim: '#7f1d1d', stripe: 'rgba(254,202,202,0.75)', text: '#fee2e2' },
+  25:  { bg: '#2563eb', rim: '#1e3a8a', stripe: 'rgba(147,197,253,0.75)', text: '#dbeafe' },
+  5:   { bg: '#16a34a', rim: '#14532d', stripe: 'rgba(134,239,172,0.75)', text: '#dcfce7' },
+  1:   { bg: '#d97706', rim: '#78350f', stripe: 'rgba(253,230,138,0.75)', text: '#fef3c7' },
+};
+
+function chipFaceSvg(denom) {
+  const s = CHIP_STYLES[denom] || CHIP_STYLES[1];
+  const label = String(denom);
+  const fs = label.length >= 3 ? '5.8' : '7';
+  return `<svg class="chip-face-svg" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13.5" fill="${s.rim}"/><circle cx="14" cy="14" r="12.5" fill="${s.bg}"/><circle cx="14" cy="14" r="12.5" fill="none" stroke="${s.stripe}" stroke-width="4.5" stroke-dasharray="3.1 6.74" stroke-dashoffset="1.55"/><circle cx="14" cy="14" r="8.2" fill="none" stroke="${s.stripe}" stroke-width="0.7"/><circle cx="14" cy="14" r="5.8" fill="rgba(0,0,0,0.28)"/><ellipse cx="14" cy="10" rx="5" ry="2.5" fill="rgba(255,255,255,0.1)"/><text x="14" y="17.8" text-anchor="middle" fill="${s.text}" font-size="${fs}" font-weight="800" font-family="Space Grotesk,sans-serif">${label}</text></svg>`;
+}
+
+function chipTowerSvg(denom, count) {
+  const s = CHIP_STYLES[denom] || CHIP_STYLES[1];
+  const visible = Math.min(count, 6);
+  const sliceH = 4.5;
+  const w = 22;
+  const h = visible * sliceH + 3;
+  let slices = '';
+  for (let i = 0; i < visible; i++) {
+    const y = (h - 2 - (i + 1) * sliceH).toFixed(1);
+    slices += `<rect x="1" y="${y}" width="${w - 2}" height="${(sliceH - 0.5).toFixed(1)}" rx="1.2" fill="${s.bg}" stroke="${s.rim}" stroke-width="0.7"/>`;
+    slices += `<rect x="2.5" y="${(parseFloat(y) + 0.8).toFixed(1)}" width="2.5" height="${(sliceH - 2).toFixed(1)}" rx="0.6" fill="${s.stripe}"/>`;
+    slices += `<rect x="${w - 5.5}" y="${(parseFloat(y) + 0.8).toFixed(1)}" width="2.5" height="${(sliceH - 2).toFixed(1)}" rx="0.6" fill="${s.stripe}"/>`;
+    slices += `<line x1="1" y1="${y}" x2="${w - 1}" y2="${y}" stroke="rgba(255,255,255,0.2)" stroke-width="0.5"/>`;
+  }
+  const overflowText = count > 6 ? `<text x="${(w / 2).toFixed(1)}" y="${(h + 9).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="7.5" font-weight="700" font-family="Space Grotesk,sans-serif">+${count - 6}</text>` : '';
+  const svgH = (h + (count > 6 ? 12 : 0)).toFixed(1);
+  return `<svg class="chip-tower-svg" width="${w}" height="${svgH}" viewBox="0 0 ${w} ${svgH}" aria-hidden="true">${slices}${overflowText}</svg>`;
+}
+
+function getChipBreakdown(amount) {
+  const denoms = [500, 100, 25, 5, 1];
+  const rows = [];
+  let remaining = Math.max(0, Math.floor(amount));
+
+  denoms.forEach((denom) => {
+    if (remaining < denom) {
+      return;
+    }
+    const count = Math.floor(remaining / denom);
+    remaining -= count * denom;
+    if (count > 0) {
+      rows.push({ denom, count });
+    }
+  });
+
+  return rows;
+}
+
+function renderChipDenominationRows(stack) {
+  if (stack <= 0) {
+    return '<span class="stack-empty">busted</span>';
+  }
+
+  const breakdown = getChipBreakdown(stack);
+  if (breakdown.length === 0) {
+    return '<span class="stack-empty">busted</span>';
+  }
+
+  return breakdown
+    .map(({ denom, count }) => `
+      <div class="chip-denom-row">
+        ${chipFaceSvg(denom)}
+        <span class="chip-denom-label">$${denom}</span>
+        ${chipTowerSvg(denom, count)}
+        <span class="chip-denom-count">×${count}</span>
+      </div>
+    `)
+    .join("");
+}
+
+function formatPlayerRow(room, player, topStack) {
+  const isActive = player.id === room.actingPlayerId ? "active" : "";
+  const isMe = player.id === currentPlayerId;
+  const meLabel = isMe ? " (you)" : "";
+  const meClass = isMe ? "me" : "";
+  const connected = player.connected ? "online" : "offline";
+  const payout = room.payouts?.find((payoutRow) => payoutRow.playerId === player.id);
+  const payoutInfo = payout ? `<span class="player-badge payout">Won ${payout.amount}</span>` : "";
+  const dealerBadge = player.seat === room.dealerSeat ? `<span class="player-badge dealer">D</span>` : "";
+  const sbBadge = player.seat === room.smallBlindSeat ? `<span class="player-badge sb">SB</span>` : "";
+  const commitmentText = player.inHand ? `<span class="player-meta-chip">bet ${player.commitment}</span>` : "";
+  const heightPercent = topStack > 0 ? clamp((player.stack / topStack) * 100, 0, 100) : 0;
+
+  return `
+    <li class="${isActive} ${meClass} player-row">
+      <div class="player-row-top">
+        <div>
+          <strong>${player.displayName}${meLabel}</strong>
+          <div class="player-meta-line">
+            <span>${player.role}</span>
+            <span>seat ${player.seat}</span>
+            <span class="${connected === "online" ? "status-online" : "status-offline"}">${connected}</span>
+          </div>
+        </div>
+        <div class="player-badges">${dealerBadge}${sbBadge}${payoutInfo}</div>
+      </div>
+      <div class="stack-visual-wrap">
+        <div class="stack-meter-track"><div class="stack-meter-fill" style="width: ${heightPercent}%;"></div></div>
+        <div class="stack-chip-breakdown">${renderChipDenominationRows(player.stack)}</div>
+      </div>
+      <div class="player-meta-line">
+        <span class="player-meta-chip">stack ${player.stack}</span>
+        ${commitmentText}
+      </div>
+    </li>
+  `;
+}
+
+function renderBlindVotePanel(room, playerId) {
+  if (!blindVotePanelEl) {
+    return;
+  }
+
+  const me = room.players.find((p) => p.id === playerId);
+  if (!me || me.role === "spectator") {
+    blindVotePanelEl.innerHTML = "";
+    blindVotePanelEl.classList.add("hidden");
+    return;
+  }
+
+  blindVotePanelEl.classList.remove("hidden");
+  const vote = room.blindVote;
+
+  if (!vote || vote.status !== "open") {
+    const canStartVote = room.status === "waiting";
+    const proposerName = vote ? room.players.find((p) => p.id === vote.proposedByPlayerId)?.displayName || "A player" : "";
+    let statusText = "No active vote";
+    if (vote?.status === "passed") {
+      statusText = `${proposerName}'s vote passed. Blinds doubled.`;
+    } else if (vote?.status === "failed") {
+      statusText = `${proposerName}'s vote failed.`;
+    }
+    blindVotePanelEl.innerHTML = `
+      <div class="blind-vote-head">
+        <h4>Blind Vote</h4>
+        <span class="vote-pill">${statusText}</span>
+      </div>
+      <p class="blind-vote-copy">Start a table vote to double blinds for the next hand. Requires strict majority.</p>
+      <button id="start-double-blinds-vote-button" class="ghost" ${canStartVote ? "" : "disabled"}>Start Vote: Double Blinds</button>
+    `;
+
+    const startButton = document.querySelector("#start-double-blinds-vote-button");
+    if (startButton) {
+      startButton.addEventListener("click", () => {
+        if (!currentRoom || !currentPlayerId) {
+          return;
+        }
+        emit({
+          type: "request_double_blinds_vote",
+          roomId: currentRoom.id,
+          actorPlayerId: currentPlayerId,
+        });
+      });
+    }
+
+    return;
+  }
+
+  const proposer = room.players.find((p) => p.id === vote.proposedByPlayerId)?.displayName || "A player";
+  const yesCount = vote.yesVotes.length;
+  const noCount = vote.noVotes.length;
+  const total = vote.eligiblePlayerIds.length;
+  const needed = Math.floor(total / 2) + 1;
+  const votedAlready = vote.yesVotes.includes(playerId) || vote.noVotes.includes(playerId);
+
+  blindVotePanelEl.innerHTML = `
+    <div class="blind-vote-head">
+      <h4>Blind Vote</h4>
+      <span class="vote-pill open">Live</span>
+    </div>
+    <p class="blind-vote-copy">${proposer} proposed doubling blinds. Majority needed: ${needed}/${total} yes votes.</p>
+    <div class="vote-tally-row">
+      <span class="vote-yes">Yes ${yesCount}</span>
+      <span class="vote-no">No ${noCount}</span>
+      <span class="vote-needed">Need ${needed}</span>
+    </div>
+    <div class="vote-actions-row">
+      <button id="double-blinds-vote-yes-button" class="ghost" ${votedAlready ? "disabled" : ""}>Vote Yes</button>
+      <button id="double-blinds-vote-no-button" class="action" ${votedAlready ? "disabled" : ""}>Vote No</button>
+    </div>
+  `;
+
+  const yesButton = document.querySelector("#double-blinds-vote-yes-button");
+  if (yesButton) {
+    yesButton.addEventListener("click", () => {
+      if (!currentRoom || !currentPlayerId) {
+        return;
+      }
+
+      emit({
+        type: "cast_double_blinds_vote",
+        roomId: currentRoom.id,
+        actorPlayerId: currentPlayerId,
+        approve: true,
+      });
+    });
+  }
+
+  const noButton = document.querySelector("#double-blinds-vote-no-button");
+  if (noButton) {
+    noButton.addEventListener("click", () => {
+      if (!currentRoom || !currentPlayerId) {
+        return;
+      }
+
+      emit({
+        type: "cast_double_blinds_vote",
+        roomId: currentRoom.id,
+        actorPlayerId: currentPlayerId,
+        approve: false,
+      });
+    });
+  }
 }
 
 function renderActions(room, playerId) {
@@ -531,6 +803,7 @@ function renderRoom(room) {
   potEl.textContent = String(totalPot);
   currentBetEl.textContent = String(room.currentBet);
   blindsEl.textContent = `${room.blinds.smallBlind} / ${room.blinds.bigBlind}`;
+  renderBlindScheduleSummary(room);
 
   const acting = room.players.find((p) => p.id === room.actingPlayerId);
   actingPlayerEl.textContent = acting ? acting.displayName : "-";
@@ -539,22 +812,8 @@ function renderRoom(room) {
   yourStackEl.textContent = me ? String(me.stack) : "-";
   yourCommitmentEl.textContent = me ? String(me.commitment) : "-";
 
-  playersEl.innerHTML = room.players
-    .map((p) => {
-      const isActive = p.id === room.actingPlayerId ? "active" : "";
-      const isMe = p.id === currentPlayerId;
-      const meLabel = isMe ? " (you)" : "";
-      const meClass = isMe ? "me" : "";
-      const connected = p.connected ? "online" : "offline";
-      const payoutInfo = room.payouts?.find((payout) => payout.playerId === p.id)
-        ? ` [Won ${room.payouts.find((payout) => payout.playerId === p.id).amount}]`
-        : "";
-      const dealerBadge = p.seat === room.dealerSeat ? " 🎰" : "";
-      const sbBadge = p.seat === room.smallBlindSeat ? " 🔸" : "";
-      const commitmentText = p.inHand ? ` - bet ${p.commitment}` : "";
-      return `<li class="${isActive} ${meClass}">${p.displayName}${meLabel} - ${p.role} - seat ${p.seat}${dealerBadge}${sbBadge} - stack ${p.stack}${commitmentText} - ${connected}${payoutInfo}</li>`;
-    })
-    .join("");
+  const topStack = room.players.reduce((max, p) => Math.max(max, p.stack), 0);
+  playersEl.innerHTML = room.players.map((p) => formatPlayerRow(room, p, topStack)).join("");
 
   logEl.innerHTML =
     room.actionLog
@@ -571,6 +830,7 @@ function renderRoom(room) {
   renderChatMessages(room);
 
   renderActions(room, currentPlayerId);
+  renderBlindVotePanel(room, currentPlayerId);
 
   // Show/hide host controls based on whether current player is host
   const isHost = currentPlayerId === room.hostPlayerId;
@@ -587,6 +847,13 @@ function renderRoom(room) {
       transferHostSelect.appendChild(option);
     });
     transferHostButton.disabled = otherPlayers.length === 0;
+
+    if (scheduleMinutesInput && room.blindSchedule) {
+      scheduleMinutesInput.value = String(Math.max(1, Math.round(room.blindSchedule.levelDurationSeconds / 60)));
+    }
+    if (toggleScheduleButton && room.blindSchedule) {
+      toggleScheduleButton.textContent = room.blindSchedule.enabled ? "Pause Schedule" : "Start Schedule";
+    }
 
     const canDeclareShowdown = room.status === "paused" && room.street === "showdown";
     showdownControls.classList.toggle("hidden", !canDeclareShowdown);
@@ -641,6 +908,7 @@ joinRoomButton.addEventListener("click", () => {
 rejoinRoomButton.addEventListener("click", () => {
   const cached = readSession();
   if (!cached) {
+    showAuthPanel();
     setFeedback("No previous session found in this browser.", true);
     return;
   }
@@ -675,6 +943,51 @@ updateBlindsButton.addEventListener("click", () => {
       smallBlind: toNumber(updateSb.value || String(currentRoom.blinds.smallBlind), currentRoom.blinds.smallBlind),
       bigBlind: toNumber(updateBb.value || String(currentRoom.blinds.bigBlind), currentRoom.blinds.bigBlind),
     },
+  });
+});
+
+saveScheduleButton.addEventListener("click", () => {
+  if (!currentRoom || !currentPlayerId) {
+    return;
+  }
+
+  const minutes = toNumber(scheduleMinutesInput.value, NaN);
+  if (!Number.isFinite(minutes) || minutes < 1) {
+    setFeedback("Enter a valid blind level duration in minutes.", true);
+    return;
+  }
+
+  emit({
+    type: "configure_blind_schedule",
+    roomId: currentRoom.id,
+    actorPlayerId: currentPlayerId,
+    levelDurationSeconds: Math.floor(minutes * 60),
+  });
+});
+
+toggleScheduleButton.addEventListener("click", () => {
+  if (!currentRoom || !currentPlayerId) {
+    return;
+  }
+
+  const enabled = !(currentRoom.blindSchedule && currentRoom.blindSchedule.enabled);
+  emit({
+    type: "toggle_blind_schedule",
+    roomId: currentRoom.id,
+    actorPlayerId: currentPlayerId,
+    enabled,
+  });
+});
+
+resetScheduleButton.addEventListener("click", () => {
+  if (!currentRoom || !currentPlayerId) {
+    return;
+  }
+
+  emit({
+    type: "reset_blind_schedule",
+    roomId: currentRoom.id,
+    actorPlayerId: currentPlayerId,
   });
 });
 
@@ -829,6 +1142,9 @@ socket.io.on("reconnect_error", () => {
 
 socket.on("event", (serverEvent) => {
   if (serverEvent.type === "error") {
+    if (serverEvent.message === "Session expired. Join again with display name.") {
+      showAuthPanel();
+    }
     setFeedback(serverEvent.message, true);
     return;
   }
@@ -881,6 +1197,12 @@ socket.on("event", (serverEvent) => {
 if (sessionCount() > 0) {
   setFeedback(`Saved sessions found (${sessionCount()}). Use Rejoin Saved Session directly - no fields required.`);
 }
+
+setInterval(() => {
+  if (currentRoom) {
+    renderBlindScheduleSummary(currentRoom);
+  }
+}, 1000);
 
 void currentSessionId;
 
