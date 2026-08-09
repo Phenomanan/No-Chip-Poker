@@ -7,6 +7,7 @@ if (urlParams.get("server")) {
 }
 const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const socket = isLocalhost ? io() : io(PRODUCTION_SERVER_URL);
+const activeServerLabel = isLocalhost ? window.location.origin : PRODUCTION_SERVER_URL;
 
 let currentRoom = null;
 let currentPlayerId = "";
@@ -28,10 +29,16 @@ const roomNameEl = document.querySelector("#room-name");
 const roomStatusEl = document.querySelector("#room-status");
 const roomStreetEl = document.querySelector("#room-street");
 const potEl = document.querySelector("#pot");
+const potTitleLabelEl = document.querySelector("#pot-title-label");
+const potVisualButton = document.querySelector("#pot-visual-button");
+const potVisualStacksEl = document.querySelector("#pot-visual-stacks");
+const turnOrderTrackEl = document.querySelector("#turn-order-track");
+const turnStateLegendEl = document.querySelector("#turn-state-legend");
+const payoutBannerEl = document.querySelector("#payout-banner");
 const currentBetEl = document.querySelector("#current-bet");
 const blindsEl = document.querySelector("#blinds");
-const blindLevelEl = document.querySelector("#blind-level");
 const blindTimerEl = document.querySelector("#blind-timer");
+const nextBlindCardEl = document.querySelector("#next-blind-card");
 const actingPlayerEl = document.querySelector("#acting-player");
 const yourStackEl = document.querySelector("#your-stack");
 const yourCommitmentEl = document.querySelector("#your-commitment");
@@ -63,18 +70,27 @@ const updateBlindsButton = document.querySelector("#update-blinds-button");
 const saveScheduleButton = document.querySelector("#save-schedule-button");
 const toggleScheduleButton = document.querySelector("#toggle-schedule-button");
 const resetScheduleButton = document.querySelector("#reset-schedule-button");
+const tableSettingsToggleButton = document.querySelector("#table-settings-toggle");
+const tableSettingsCloseButton = document.querySelector("#table-settings-close");
+const tableSettingsPanel = document.querySelector("#table-settings-panel");
 const hostControlsCard = document.querySelector("#host-controls-card");
 const transferHostSelect = document.querySelector("#transfer-host-select");
 const transferHostButton = document.querySelector("#transfer-host-button");
-const showdownControls = document.querySelector("#showdown-controls");
-const showdownWinnersList = document.querySelector("#showdown-winners-list");
-const declareWinnersButton = document.querySelector("#declare-winners-button");
-const selectAllWinnersButton = document.querySelector("#select-all-winners-button");
-const clearAllWinnersButton = document.querySelector("#clear-all-winners-button");
+const showdownMainCard = document.querySelector("#showdown-main-card");
+const showdownMainStatus = document.querySelector("#showdown-main-status");
+const showdownWinnersListMain = document.querySelector("#showdown-winners-list-main");
+const showdownActionsMain = document.querySelector("#showdown-actions-main");
+const declareWinnersButtonMain = document.querySelector("#declare-winners-button-main");
+const selectAllWinnersButtonMain = document.querySelector("#select-all-winners-button-main");
+const clearAllWinnersButtonMain = document.querySelector("#clear-all-winners-button-main");
 const handRankingsButton = document.querySelector("#hand-rankings-button");
 const handRankingsModal = document.querySelector("#hand-rankings-modal");
 const closeRankingsButton = document.querySelector("#close-rankings-button");
 const handRankingsList = document.querySelector("#hand-rankings-list");
+const chipDetailModal = document.querySelector("#chip-detail-modal");
+const chipDetailTitle = document.querySelector("#chip-detail-title");
+const chipDetailBody = document.querySelector("#chip-detail-body");
+const closeChipDetailButton = document.querySelector("#close-chip-detail-button");
 const chatMessagesEl = document.querySelector("#chat-messages");
 const chatInput = document.querySelector("#chat-input");
 const chatSendButton = document.querySelector("#chat-send-button");
@@ -373,7 +389,7 @@ function calculateLegalActions(room, playerId) {
   // Check if no bet is outstanding for this player
   if (amountToCall === 0) {
     actions.push("check");
-  } else {
+  } else if (player.stack >= amountToCall) {
     actions.push("call");
   }
 
@@ -409,22 +425,18 @@ function formatCountdown(seconds) {
 }
 
 function renderBlindScheduleSummary(room) {
-  if (!blindLevelEl || !blindTimerEl) {
+  if (!blindTimerEl || !nextBlindCardEl) {
     return;
   }
 
   const schedule = room.blindSchedule;
-  blindLevelEl.textContent = String(schedule?.levelNumber ?? 1);
-
-  if (!schedule?.enabled) {
-    blindTimerEl.textContent = "Off";
+  if (!schedule?.enabled || !schedule?.nextLevelAt) {
+    blindTimerEl.textContent = "--:--";
+    nextBlindCardEl.classList.add("hidden");
     return;
   }
 
-  if (!schedule.nextLevelAt) {
-    blindTimerEl.textContent = "Queued";
-    return;
-  }
+  nextBlindCardEl.classList.remove("hidden");
 
   const secondsRemaining = Math.max(0, Math.ceil((schedule.nextLevelAt - Date.now()) / 1000));
   blindTimerEl.textContent = formatCountdown(secondsRemaining);
@@ -451,21 +463,33 @@ function chipFaceSvg(denom) {
 
 function chipTowerSvg(denom, count) {
   const s = CHIP_STYLES[denom] || CHIP_STYLES[1];
-  const visible = Math.min(count, 6);
-  const sliceH = 4.5;
+  const visible = Math.max(1, Math.min(count, 6));
   const w = 22;
-  const h = visible * sliceH + 3;
-  let slices = '';
+  const cx = w / 2;
+  const rx = cx - 1;
+  const ry = 3.3;
+  const overlap = ry * 1.1;
+  const baseH = ry * 2 + (visible - 1) * overlap + 1;
+  const overflow = count > 6 ? count - 6 : 0;
+  const svgH = (baseH + (overflow > 0 ? 11 : 0)).toFixed(1);
+
+  // Every chip gets the same dashed-rim ring used by the round chip-face icon
+  // (chipFaceSvg) so a stack of overlapping discs reads unmistakably as "chips",
+  // not a generic striped bar.
+  let discs = '';
   for (let i = 0; i < visible; i++) {
-    const y = (h - 2 - (i + 1) * sliceH).toFixed(1);
-    slices += `<rect x="1" y="${y}" width="${w - 2}" height="${(sliceH - 0.5).toFixed(1)}" rx="1.2" fill="${s.bg}" stroke="${s.rim}" stroke-width="0.7"/>`;
-    slices += `<rect x="2.5" y="${(parseFloat(y) + 0.8).toFixed(1)}" width="2.5" height="${(sliceH - 2).toFixed(1)}" rx="0.6" fill="${s.stripe}"/>`;
-    slices += `<rect x="${w - 5.5}" y="${(parseFloat(y) + 0.8).toFixed(1)}" width="2.5" height="${(sliceH - 2).toFixed(1)}" rx="0.6" fill="${s.stripe}"/>`;
-    slices += `<line x1="1" y1="${y}" x2="${w - 1}" y2="${y}" stroke="rgba(255,255,255,0.2)" stroke-width="0.5"/>`;
+    const cy = baseH - 1 - ry - i * overlap;
+    discs += `<ellipse cx="${cx}" cy="${cy.toFixed(1)}" rx="${rx}" ry="${ry}" fill="${s.bg}" stroke="${s.rim}" stroke-width="0.9"/>`;
+    discs += `<ellipse cx="${cx}" cy="${cy.toFixed(1)}" rx="${rx}" ry="${ry}" fill="none" stroke="${s.stripe}" stroke-width="1" stroke-dasharray="1.4 2.2"/>`;
   }
-  const overflowText = count > 6 ? `<text x="${(w / 2).toFixed(1)}" y="${(h + 9).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="7.5" font-weight="700" font-family="Space Grotesk,sans-serif">+${count - 6}</text>` : '';
-  const svgH = (h + (count > 6 ? 12 : 0)).toFixed(1);
-  return `<svg class="chip-tower-svg" width="${w}" height="${svgH}" viewBox="0 0 ${w} ${svgH}" aria-hidden="true">${slices}${overflowText}</svg>`;
+  const topCy = baseH - 1 - ry - (visible - 1) * overlap;
+  discs += `<ellipse cx="${(cx - rx * 0.28).toFixed(1)}" cy="${(topCy - ry * 0.3).toFixed(1)}" rx="${(rx * 0.3).toFixed(1)}" ry="${(ry * 0.28).toFixed(1)}" fill="rgba(255,255,255,0.32)"/>`;
+
+  const overflowText = overflow > 0
+    ? `<text x="${cx.toFixed(1)}" y="${(baseH + 9).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="7.5" font-weight="700" font-family="Space Grotesk,sans-serif">+${overflow}</text>`
+    : '';
+
+  return `<svg class="chip-tower-svg" width="${w}" height="${svgH}" viewBox="0 0 ${w} ${svgH}" aria-hidden="true">${discs}${overflowText}</svg>`;
 }
 
 function getChipBreakdown(amount) {
@@ -487,43 +511,271 @@ function getChipBreakdown(amount) {
   return rows;
 }
 
-function renderChipDenominationRows(stack) {
-  if (stack <= 0) {
-    return '<span class="stack-empty">busted</span>';
+function renderBreakdownRows(amount) {
+  const rows = getChipBreakdown(amount);
+  if (rows.length === 0) {
+    return "<p class=\"chip-breakdown-empty\">No chips in this stack.</p>";
   }
 
-  const breakdown = getChipBreakdown(stack);
+  return rows
+    .map(({ denom, count }) => `
+      <div class="chip-breakdown-row">
+        <div class="chip-breakdown-left">
+          ${chipFaceSvg(denom)}
+          <span>$${denom}</span>
+        </div>
+        <div class="chip-breakdown-right">
+          <span>${chipTowerSvg(denom, Math.min(6, count))}</span>
+          <strong>${count}</strong>
+        </div>
+      </div>
+    `)
+    .join("");
+}
+
+function openChipDetailModal(title, sections) {
+  if (!chipDetailModal || !chipDetailTitle || !chipDetailBody) {
+    return;
+  }
+
+  chipDetailTitle.textContent = title;
+  chipDetailBody.innerHTML = sections
+    .map((section) => `
+      <section class="chip-breakdown-section">
+        <h4>${section.title}</h4>
+        <p class="chip-breakdown-total">Total ${section.amount}</p>
+        ${renderBreakdownRows(section.amount)}
+      </section>
+    `)
+    .join("");
+
+  chipDetailModal.classList.remove("hidden");
+}
+
+function renderPotStackPreview(room) {
+  if (!potVisualStacksEl) {
+    return;
+  }
+
+  const previewPots = getVisualPots(room);
+  const total = previewPots.reduce((sum, pot) => sum + pot.amount, 0);
+
+  potVisualStacksEl.innerHTML = previewPots
+    .map((pot, index) => {
+      const potKind = index === 0 ? "main" : "side";
+      const pileLabel = pot.label || (index === 0 ? "Main" : `Side ${index}`);
+      const share = total > 0 ? pot.amount / total : 0;
+      const scale = clamp(0.7 + share * 1.35, 0.7, 1.55);
+      const chipDensityFactor = clamp(share * 3.2, 0.55, 2.25);
+      return `
+        <span class="pot-pile-wrap ${potKind}">
+          <span class="pot-pile ${potKind}" style="--pile-scale:${scale.toFixed(3)};" title="${potKind === "main" ? "Main Pot" : `Side Pot ${index}`} ${pot.amount}">
+            ${renderStackPreview(pot.amount, chipDensityFactor, "no pot yet", "pot-empty")}
+          </span>
+          <span class="pot-pile-label">${pileLabel}</span>
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function getVisualPots(room) {
+  const pots = Array.isArray(room.pots) ? room.pots.filter((pot) => Number.isFinite(pot.amount) && pot.amount > 0) : [];
+  const total = calculatePotAmount(room);
+
+  if (pots.length === 0) {
+    return [{ label: "Main", amount: total }];
+  }
+
+  // Keep a single pooled visual while betting for this street is still unresolved.
+  if (room.status === "in_hand" && room.currentBet > 0) {
+    return [{ label: "In Play", amount: total }];
+  }
+
+  return pots.map((pot, index) => ({
+    label: index === 0 ? "Main" : `Side ${index}`,
+    amount: pot.amount,
+  }));
+}
+
+function renderTableTurnVisual(room) {
+  if (!turnOrderTrackEl || !turnStateLegendEl) {
+    return;
+  }
+
+  const players = room.players
+    .filter((player) => player.role !== "spectator")
+    .sort((a, b) => a.seat - b.seat);
+
+  if (players.length === 0) {
+    turnOrderTrackEl.innerHTML = "<p class=\"turn-empty\">No active players</p>";
+    turnStateLegendEl.innerHTML = "";
+    return;
+  }
+
+  const latestActionByPlayer = new Map();
+  room.actionLog
+    .slice()
+    .reverse()
+    .forEach((entry) => {
+      if (!latestActionByPlayer.has(entry.playerId)) {
+        latestActionByPlayer.set(entry.playerId, entry);
+      }
+    });
+
+  const actingIndex = players.findIndex((player) => player.id === room.actingPlayerId);
+  const orderedPlayers = actingIndex > 0
+    ? [...players.slice(actingIndex), ...players.slice(0, actingIndex)]
+    : players;
+
+  turnOrderTrackEl.innerHTML = orderedPlayers
+    .map((player, index) => {
+      const isActing = room.status === "in_hand" && player.id === room.actingPlayerId;
+      const isFolded = room.status === "in_hand" && !player.inHand;
+      const isCalled = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment === room.currentBet;
+      const isToCall = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment < room.currentBet;
+      const wonThisHand = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.some((payout) => payout.playerId === player.id);
+
+      let stateLabel = "Waiting";
+      let stateClass = "waiting";
+      if (isFolded) {
+        stateLabel = "Folded";
+        stateClass = "folded";
+      } else if (isActing) {
+        stateLabel = "Acting";
+        stateClass = "acting";
+      } else if (isCalled) {
+        stateLabel = room.currentBet > 0 ? "Called" : "Checked";
+        stateClass = "called";
+      } else if (isToCall) {
+        stateLabel = "To Call";
+        stateClass = "betting";
+      } else if (wonThisHand) {
+        stateLabel = "Winner";
+        stateClass = "winner";
+      }
+
+      const latest = latestActionByPlayer.get(player.id);
+      const latestText = latest
+        ? `${latest.action}${typeof latest.amount === "number" ? ` ${latest.amount}` : ""}`
+        : "-";
+      const dealerBadge = player.seat === room.dealerSeat ? "D" : "";
+      const sbBadge = player.seat === room.smallBlindSeat ? "SB" : "";
+      const inHandMeta = room.status === "in_hand" && player.inHand ? `bet ${player.commitment}` : `stack ${player.stack}`;
+
+      return `
+        <article class="turn-seat ${stateClass}">
+          <div class="turn-seat-top">
+            <span class="turn-order">${index + 1}</span>
+            <strong>${player.displayName}</strong>
+            <span class="turn-badges">${dealerBadge} ${sbBadge}</span>
+          </div>
+          <div class="turn-seat-meta">
+            <span>${stateLabel}</span>
+            <span>${inHandMeta}</span>
+            <span>last: ${latestText}</span>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  turnStateLegendEl.innerHTML = `
+    <span class="legend-pill acting">Acting</span>
+    <span class="legend-pill called">Called/Checked</span>
+    <span class="legend-pill betting">To Call</span>
+    <span class="legend-pill folded">Folded</span>
+  `;
+}
+
+function bindStackAndPotBreakdownHandlers(room) {
+  document.querySelectorAll("[data-player-stack-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const playerId = button.getAttribute("data-player-stack-id");
+      if (!playerId) {
+        return;
+      }
+
+      const player = room.players.find((p) => p.id === playerId);
+      if (!player) {
+        return;
+      }
+
+      openChipDetailModal(`${player.displayName} Stack Breakdown`, [
+        {
+          title: "Player Stack",
+          amount: player.stack,
+        },
+      ]);
+    });
+  });
+
+  if (potVisualButton) {
+    potVisualButton.onclick = () => {
+      const visualPots = getVisualPots(room);
+      const sections = visualPots.map((pot, index) => ({
+        title: visualPots.length > 1 ? `${pot.label || `Side ${index + 1}`} Pot` : "Main Pot",
+        amount: pot.amount,
+      }));
+
+      const total = calculatePotAmount(room);
+      if (sections.length === 0) {
+        sections.push({ title: "Main Pot", amount: total });
+      }
+
+      openChipDetailModal("Pot Breakdown", sections);
+    };
+  }
+}
+
+function renderStackPreview(stack, densityFactor = 1, emptyLabel = "busted", emptyClass = "stack-empty") {
+  if (stack <= 0) {
+    return `<span class="${emptyClass}">${emptyLabel}</span>`;
+  }
+
+  const breakdown = getChipBreakdown(stack).slice(0, 4);
   if (breakdown.length === 0) {
-    return '<span class="stack-empty">busted</span>';
+    return `<span class="${emptyClass}">${emptyLabel}</span>`;
   }
 
   return breakdown
-    .map(({ denom, count }) => `
-      <div class="chip-denom-row">
-        ${chipFaceSvg(denom)}
-        <span class="chip-denom-label">$${denom}</span>
-        ${chipTowerSvg(denom, count)}
-        <span class="chip-denom-count">×${count}</span>
-      </div>
-    `)
+    .map(({ denom, count }) => {
+      const visualCount = Math.max(1, Math.min(7, Math.round(count * densityFactor)));
+      return `
+        <span class="stack-preview-chip" title="$${denom}">
+          ${chipTowerSvg(denom, visualCount)}
+        </span>
+      `;
+    })
     .join("");
 }
 
 function formatPlayerRow(room, player, topStack) {
   const isActive = player.id === room.actingPlayerId ? "active" : "";
   const isMe = player.id === currentPlayerId;
+  const isMyTurn = isMe && player.id === room.actingPlayerId;
   const meLabel = isMe ? " (you)" : "";
-  const meClass = isMe ? "me" : "";
+  const meClass = [isMe ? "me" : "", isMyTurn ? "my-turn" : ""].filter(Boolean).join(" ");
   const connected = player.connected ? "online" : "offline";
   const payout = room.payouts?.find((payoutRow) => payoutRow.playerId === player.id);
+  const payoutIndex = room.payouts?.findIndex((payoutRow) => payoutRow.playerId === player.id) ?? -1;
   const payoutInfo = payout ? `<span class="player-badge payout">Won ${payout.amount}</span>` : "";
   const dealerBadge = player.seat === room.dealerSeat ? `<span class="player-badge dealer">D</span>` : "";
   const sbBadge = player.seat === room.smallBlindSeat ? `<span class="player-badge sb">SB</span>` : "";
+  const yourTurnBadge = isMyTurn ? `<span class="player-badge your-turn">▶ Your turn</span>` : "";
   const commitmentText = player.inHand ? `<span class="player-meta-chip">bet ${player.commitment}</span>` : "";
   const heightPercent = topStack > 0 ? clamp((player.stack / topStack) * 100, 0, 100) : 0;
+  const receivesPayout = room.payoutState === "animating" && (room.payouts || []).some((payout) => payout.playerId === player.id);
+  const payoutClass = receivesPayout ? "payout-recipient" : "";
+  const payoutGrowClass = receivesPayout ? "payout-grow" : "";
+  const payoutDelay = payoutIndex >= 0 ? payoutIndex * 220 : 0;
+  const payoutStyle = receivesPayout ? `style="--payout-delay:${payoutDelay}ms;"` : "";
+  const payoutFloat = receivesPayout && payout
+    ? `<span class="payout-float" style="--payout-delay:${payoutDelay}ms;">+${payout.amount}</span>`
+    : "";
 
   return `
-    <li class="${isActive} ${meClass} player-row">
+    <li class="${isActive} ${meClass} ${payoutClass} player-row" ${payoutStyle}>
       <div class="player-row-top">
         <div>
           <strong>${player.displayName}${meLabel}</strong>
@@ -533,11 +785,14 @@ function formatPlayerRow(room, player, topStack) {
             <span class="${connected === "online" ? "status-online" : "status-offline"}">${connected}</span>
           </div>
         </div>
-        <div class="player-badges">${dealerBadge}${sbBadge}${payoutInfo}</div>
+        <div class="player-badges">${yourTurnBadge}${dealerBadge}${sbBadge}${payoutInfo}</div>
       </div>
       <div class="stack-visual-wrap">
-        <div class="stack-meter-track"><div class="stack-meter-fill" style="width: ${heightPercent}%;"></div></div>
-        <div class="stack-chip-breakdown">${renderChipDenominationRows(player.stack)}</div>
+        <div class="stack-meter-track"><div class="stack-meter-fill ${payoutGrowClass}" style="width: ${heightPercent}%;"></div></div>
+        ${payoutFloat}
+        <button class="stack-chip-preview" data-player-stack-id="${player.id}" aria-label="Show ${player.displayName} chip breakdown">
+          <span class="stack-chip-breakdown">${renderStackPreview(player.stack)}</span>
+        </button>
       </div>
       <div class="player-meta-line">
         <span class="player-meta-chip">stack ${player.stack}</span>
@@ -655,8 +910,26 @@ function renderBlindVotePanel(room, playerId) {
 }
 
 function renderActions(room, playerId) {
+  const me = room.players.find((p) => p.id === playerId);
+  const isHost = room.hostPlayerId === playerId;
+
+  if (room.status !== "in_hand") {
+    if (isHost) {
+      actionsContainer.innerHTML = "<p style=\"color: var(--muted); font-size: 0.9rem; margin: 0;\">Press Start Hand to begin the next hand.</p>";
+    } else {
+      actionsContainer.innerHTML = "<p style=\"color: var(--muted); font-size: 0.9rem; margin: 0;\">Waiting for host to start the hand...</p>";
+    }
+    raiseMode = false;
+    return;
+  }
+
+  if (me && !me.inHand) {
+    actionsContainer.innerHTML = "<p style=\"color: var(--muted); font-size: 0.9rem; margin: 0;\">You are out of this hand.</p>";
+    raiseMode = false;
+    return;
+  }
+
   if (room.street === "showdown" && room.status === "paused") {
-    const isHost = room.hostPlayerId === playerId;
     actionsContainer.innerHTML = `<p style="color: var(--muted); font-size: 0.9rem; margin: 0;">${
       isHost ? "Declare winner(s) in Host Controls." : "Waiting for host to declare winner(s)."
     }</p>`;
@@ -677,14 +950,14 @@ function renderActions(room, playerId) {
 
   actions.forEach((action) => {
     if (action === "raise") {
-      html += `<button id="raise-button-trigger" class="action">Raise</button>`;
+      html += `<button id="raise-button-trigger" class="action raise">Raise</button>`;
     } else if (action === "fold") {
-      html += `<button data-action="fold" class="action">Fold</button>`;
+      html += `<button data-action="fold" class="action fold">Fold</button>`;
     } else if (action === "check") {
-      html += `<button data-action="check" class="action">Check</button>`;
+      html += `<button data-action="check" class="action call">Check</button>`;
     } else if (action === "call") {
       const amountToCall = Math.max(0, room.currentBet - player.commitment);
-      html += `<button data-action="call" class="action">Call (${amountToCall})</button>`;
+      html += `<button data-action="call" class="action call">Call (${amountToCall})</button>`;
     } else if (action === "all_in") {
       html += `<button data-action="all_in" class="action danger">All In</button>`;
     }
@@ -792,6 +1065,15 @@ function renderActions(room, playerId) {
   }
 }
 
+const DEFAULT_TAB_TITLE = "No-Chip Poker";
+
+function updateTabTitle(room, me) {
+  const isMyTurn = Boolean(
+    me && me.inHand && room.status === "in_hand" && room.actingPlayerId === me.id
+  );
+  document.title = isMyTurn ? `● Your turn — ${DEFAULT_TAB_TITLE}` : DEFAULT_TAB_TITLE;
+}
+
 function renderRoom(room) {
   currentRoom = room;
   roomCodeEl.textContent = room.code;
@@ -801,6 +1083,9 @@ function renderRoom(room) {
   
   const totalPot = Array.isArray(room.pots) ? room.pots.reduce((sum, p) => sum + p.amount, 0) : 0;
   potEl.textContent = String(totalPot);
+  renderPotTitleLabel(room);
+  renderPotStackPreview(room);
+  renderTableTurnVisual(room);
   currentBetEl.textContent = String(room.currentBet);
   blindsEl.textContent = `${room.blinds.smallBlind} / ${room.blinds.bigBlind}`;
   renderBlindScheduleSummary(room);
@@ -811,9 +1096,13 @@ function renderRoom(room) {
   const me = room.players.find((p) => p.id === currentPlayerId);
   yourStackEl.textContent = me ? String(me.stack) : "-";
   yourCommitmentEl.textContent = me ? String(me.commitment) : "-";
+  updateTabTitle(room, me);
 
   const topStack = room.players.reduce((max, p) => Math.max(max, p.stack), 0);
   playersEl.innerHTML = room.players.map((p) => formatPlayerRow(room, p, topStack)).join("");
+  bindStackAndPotBreakdownHandlers(room);
+
+  renderPayoutBanner(room);
 
   logEl.innerHTML =
     room.actionLog
@@ -834,7 +1123,13 @@ function renderRoom(room) {
 
   // Show/hide host controls based on whether current player is host
   const isHost = currentPlayerId === room.hostPlayerId;
+  const canDeclareShowdown = room.status === "paused" && room.street === "showdown";
   hostControlsCard.style.display = isHost ? 'block' : 'none';
+  if (startHandButton) {
+    const payoutReady = room.payoutState === "idle";
+    const showStartHand = isHost && room.status === "waiting" && payoutReady;
+    startHandButton.style.display = showStartHand ? "inline-flex" : "none";
+  }
   
   // Populate transfer host dropdown
   if (isHost) {
@@ -854,39 +1149,352 @@ function renderRoom(room) {
     if (toggleScheduleButton && room.blindSchedule) {
       toggleScheduleButton.textContent = room.blindSchedule.enabled ? "Pause Schedule" : "Start Schedule";
     }
-
-    const canDeclareShowdown = room.status === "paused" && room.street === "showdown";
-    showdownControls.classList.toggle("hidden", !canDeclareShowdown);
-
-    if (canDeclareShowdown) {
-      const candidates = room.players.filter((p) => p.inHand && p.role !== "spectator");
-      showdownWinnersList.innerHTML = candidates
-        .map(
-          (p) => `
-            <label class="showdown-winner-option">
-              <input type="checkbox" value="${p.id}" />
-              <span>${p.displayName}</span>
-            </label>
-          `
-        )
-        .join("");
-    } else {
-      showdownWinnersList.innerHTML = "";
-    }
-  } else {
-    showdownControls.classList.add("hidden");
   }
+
+  const showdownPots = Array.isArray(room.pots) ? room.pots : [];
+  const isMultiPotShowdown = canDeclareShowdown && showdownPots.length > 1;
+
+  if (canDeclareShowdown) {
+    const candidates = room.players.filter((p) => p.inHand && p.role !== "spectator");
+    showdownWinnersListMain.innerHTML = isMultiPotShowdown
+      ? renderShowdownPotGroups(room, showdownPots, candidates)
+      : candidates
+          .map(
+            (p) => `
+              <label class="showdown-winner-option">
+                <input type="checkbox" data-pot-index="0" value="${p.id}" />
+                <span>${p.displayName}</span>
+              </label>
+            `
+          )
+          .join("");
+  } else {
+    showdownWinnersListMain.innerHTML = "";
+  }
+
+  if (showdownMainCard) {
+    showdownMainCard.classList.toggle("hidden", !canDeclareShowdown);
+  }
+
+  if (showdownMainStatus) {
+    showdownMainStatus.textContent = canDeclareShowdown
+      ? (isHost
+          ? (isMultiPotShowdown
+              ? "This hand has side pots. Select the winner(s) for each pot below, then confirm."
+              : "Select winner(s) and confirm to resolve the hand.")
+          : "Waiting for host to declare winner(s).")
+      : "Showdown controls appear here when a hand reaches showdown.";
+  }
+
+  const showMainHostActions = isHost && canDeclareShowdown;
+  if (showdownActionsMain) {
+    showdownActionsMain.classList.toggle("hidden", !showMainHostActions);
+  }
+  if (declareWinnersButtonMain) {
+    declareWinnersButtonMain.classList.toggle("hidden", !showMainHostActions);
+  }
+}
+
+function potGroupLabel(index) {
+  return index === 0 ? "the main pot" : `side pot ${index}`;
+}
+
+// When a hand has side pots, the flat "pick the winner(s)" checklist can't express
+// that the main pot and a side pot may go to different players (e.g. a short stack
+// wins the main pot outright while a side pot is contested between two other
+// players who covered it). This renders one checkbox group per pot instead, each
+// scoped to only the players who actually contributed to (and are still in the
+// hand for) that pot.
+function renderShowdownPotGroups(room, pots, candidates) {
+  const eligiblePlayerIds = new Set(candidates.map((p) => p.id));
+
+  return pots
+    .map((pot, index) => {
+      const eligibleContributors = pot.contributors.filter((id) => eligiblePlayerIds.has(id));
+      const label = index === 0 ? "Main Pot" : `Side Pot ${index}`;
+      const uncontested = eligibleContributors.length <= 1;
+
+      const optionsHtml = eligibleContributors.length > 0
+        ? eligibleContributors
+            .map((id) => {
+              const player = room.players.find((p) => p.id === id);
+              const name = player ? player.displayName : "Unknown";
+              const checkedAttr = uncontested ? "checked" : "";
+              const disabledAttr = uncontested ? "disabled" : "";
+              return `
+                <label class="showdown-winner-option ${uncontested ? "uncontested" : ""}">
+                  <input type="checkbox" data-pot-index="${index}" value="${id}" ${checkedAttr} ${disabledAttr} />
+                  <span>${name}</span>
+                </label>
+              `;
+            })
+            .join("")
+        : `<p class="showdown-hint">No eligible player remains for this pot.</p>`;
+
+      return `
+        <div class="showdown-pot-group">
+          <p class="showdown-pot-group-label">${label} — ${pot.amount} chips${uncontested && eligibleContributors.length === 1 ? " (uncontested)" : ""}</p>
+          <div class="showdown-pot-group-options">${optionsHtml}</div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function getSelectedWinnerIds(listElement) {
+  return [...new Set([...listElement.querySelectorAll("input[type='checkbox']:checked")].map((el) => el.value))];
+}
+
+function getSelectedPotWinnerIds(listElement, potCount) {
+  const groups = Array.from({ length: potCount }, () => []);
+  listElement.querySelectorAll("input[type='checkbox']:checked").forEach((el) => {
+    const potIndex = Number(el.dataset.potIndex);
+    if (Number.isInteger(potIndex) && groups[potIndex]) {
+      groups[potIndex].push(el.value);
+    }
+  });
+  return groups;
+}
+
+function setAllWinnerCheckboxes(listElement, checked) {
+  listElement.querySelectorAll("input[type='checkbox']:not(:disabled)").forEach((cb) => {
+    cb.checked = checked;
+  });
+}
+
+function submitDeclaredWinnersFrom(listElement) {
+  if (!currentRoom || !currentPlayerId) {
+    return;
+  }
+
+  if (currentRoom.hostPlayerId !== currentPlayerId) {
+    setFeedback("Only the host can declare winner(s).", true);
+    return;
+  }
+
+  const selectedWinnerIds = getSelectedWinnerIds(listElement);
+  if (selectedWinnerIds.length === 0) {
+    setFeedback("Select at least one winner.", true);
+    return;
+  }
+
+  const pots = Array.isArray(currentRoom.pots) ? currentRoom.pots : [];
+  const isMultiPot = pots.length > 1;
+  let potWinnerIds;
+
+  if (isMultiPot) {
+    potWinnerIds = getSelectedPotWinnerIds(listElement, pots.length);
+    for (let i = 0; i < potWinnerIds.length; i += 1) {
+      const groupHasContestedInputs = listElement.querySelectorAll(
+        `input[type='checkbox'][data-pot-index="${i}"]:not(:disabled)`
+      ).length > 0;
+      if (groupHasContestedInputs && potWinnerIds[i].length === 0) {
+        setFeedback(`Select at least one winner for ${potGroupLabel(i)}.`, true);
+        return;
+      }
+    }
+  }
+
+  const winnerNames = selectedWinnerIds.map((id) => {
+    const winner = currentRoom.players.find((p) => p.id === id);
+    return winner ? winner.displayName : "Unknown";
+  }).join(", ");
+
+  if (!confirm(`Award pot to ${winnerNames}? This cannot be undone.`)) {
+    return;
+  }
+
+  emit({
+    type: "declare_winners",
+    roomId: currentRoom.id,
+    actorPlayerId: currentPlayerId,
+    winnerIds: selectedWinnerIds,
+    ...(isMultiPot ? { potWinnerIds } : {}),
+  });
+}
+
+function renderPotTitleLabel(room) {
+  if (!potTitleLabelEl) {
+    return;
+  }
+
+  const hasResolvedPayout = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.length > 0;
+  if (!hasResolvedPayout) {
+    potTitleLabelEl.textContent = "Table Pot";
+    return;
+  }
+
+  const winnerNames = room.payouts
+    .map((payout) => room.players.find((player) => player.id === payout.playerId)?.displayName || "Player")
+    .filter((name, index, arr) => arr.indexOf(name) === index);
+
+  const payoutLines = room.payouts.map((payout) => {
+    const name = room.players.find((player) => player.id === payout.playerId)?.displayName || "Player";
+    return { name, amount: payout.amount };
+  });
+
+  const merged = new Map();
+  payoutLines.forEach(({ name, amount }) => {
+    merged.set(name, (merged.get(name) || 0) + amount);
+  });
+
+  const mergedEntries = [...merged.entries()];
+
+  if (mergedEntries.length === 1) {
+    const [name, amount] = mergedEntries[0];
+    potTitleLabelEl.textContent = `${name} wins ${amount}!`;
+    return;
+  }
+
+  if (mergedEntries.length === 2) {
+    const [firstName, firstAmount] = mergedEntries[0];
+    const [secondName, secondAmount] = mergedEntries[1];
+    potTitleLabelEl.textContent = `${firstName} ${firstAmount} + ${secondName} ${secondAmount}`;
+    return;
+  }
+
+  potTitleLabelEl.textContent = mergedEntries
+    .slice(0, 3)
+    .map(([name, amount]) => `${name} ${amount}`)
+    .join(" • ");
+}
+
+function renderPayoutBanner(room) {
+  if (!payoutBannerEl) {
+    return;
+  }
+
+  if (!Array.isArray(room.payouts) || room.payouts.length === 0 || room.status !== "waiting") {
+    payoutBannerEl.classList.add("hidden");
+    payoutBannerEl.innerHTML = "";
+    if (potVisualButton) {
+      potVisualButton.classList.remove("payout-distributing");
+    }
+    return;
+  }
+
+  const payoutSummary = room.payouts
+    .map((payout) => {
+      const name = room.players.find((player) => player.id === payout.playerId)?.displayName || "Player";
+      return `${name} wins ${payout.amount}`;
+    })
+    .join(" • ");
+
+  if (room.payoutState === "pending_ack") {
+    if (potVisualButton) {
+      potVisualButton.classList.remove("payout-distributing");
+    }
+    payoutBannerEl.classList.remove("hidden");
+    payoutBannerEl.innerHTML = `
+      <div>
+        <p class="payout-banner-text">${payoutSummary}!</p>
+        <p class="payout-banner-sub">Any player can acknowledge to trigger payout animation.</p>
+      </div>
+      <button id="acknowledge-payout-button" class="ghost payout-ack-button">Acknowledge</button>
+    `;
+
+    const acknowledgeButton = document.querySelector("#acknowledge-payout-button");
+    if (acknowledgeButton) {
+      acknowledgeButton.addEventListener("click", () => {
+        if (!currentRoom || !currentPlayerId) {
+          return;
+        }
+
+        emit({
+          type: "acknowledge_payout",
+          roomId: currentRoom.id,
+          actorPlayerId: currentPlayerId,
+        });
+      });
+    }
+    return;
+  }
+
+  if (room.payoutState === "animating") {
+    if (potVisualButton) {
+      potVisualButton.classList.add("payout-distributing");
+    }
+    const actor = room.players.find((player) => player.id === room.payoutAcknowledgedByPlayerId)?.displayName || "A player";
+    payoutBannerEl.classList.remove("hidden");
+    payoutBannerEl.innerHTML = `
+      <div>
+        <p class="payout-banner-text">${payoutSummary}!</p>
+        <p class="payout-banner-sub">${actor} acknowledged payout. Chips are being pushed now...</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (potVisualButton) {
+    potVisualButton.classList.remove("payout-distributing");
+  }
+  payoutBannerEl.classList.remove("hidden");
+  payoutBannerEl.innerHTML = `
+    <div>
+      <p class="payout-banner-text">${payoutSummary}!</p>
+      <p class="payout-banner-sub">Payout complete. Ready for next hand.</p>
+    </div>
+  `;
 }
 
 function emit(event) {
   socket.emit("event", event);
 }
 
+function ensureRealtimeConnected(actionLabel) {
+  if (isSocketConnected) {
+    return true;
+  }
+
+  const localHint =
+    isLocalhost
+      ? "Start the backend server locally (npm run dev:server) and refresh."
+      : "If you are running locally, open with ?server=http://localhost:3001 (or your backend URL).";
+  setFeedback(`Cannot ${actionLabel} while disconnected from ${activeServerLabel}. ${localHint}`, true);
+  return false;
+}
+
+if (tableSettingsToggleButton && tableSettingsPanel) {
+  tableSettingsToggleButton.addEventListener("click", () => {
+    tableSettingsPanel.classList.toggle("hidden");
+  });
+}
+
+if (tableSettingsCloseButton && tableSettingsPanel) {
+  tableSettingsCloseButton.addEventListener("click", () => {
+    tableSettingsPanel.classList.add("hidden");
+  });
+}
+
+if (closeChipDetailButton && chipDetailModal) {
+  closeChipDetailButton.addEventListener("click", () => {
+    chipDetailModal.classList.add("hidden");
+  });
+}
+
+if (chipDetailModal) {
+  chipDetailModal.addEventListener("click", (event) => {
+    if (event.target === chipDetailModal) {
+      chipDetailModal.classList.add("hidden");
+    }
+  });
+}
+
 createRoomButton.addEventListener("click", () => {
+  if (!ensureRealtimeConnected("create a room")) {
+    return;
+  }
+
+  const displayName = createDisplayName.value.trim();
+  if (!displayName) {
+    setFeedback("Enter a display name before creating a room.", true);
+    return;
+  }
+
   emit({
     type: "create_room",
     payload: {
-      displayName: createDisplayName.value.trim(),
+      displayName,
       name: createRoomName.value.trim(),
       smallBlind: toNumber(createSb.value, 25),
       bigBlind: toNumber(createBb.value, 50),
@@ -896,9 +1504,20 @@ createRoomButton.addEventListener("click", () => {
 });
 
 joinRoomButton.addEventListener("click", () => {
+  if (!ensureRealtimeConnected("join a room")) {
+    return;
+  }
+
+  const displayName = joinDisplayName.value.trim();
+  const roomCode = joinRoomCode.value.trim().toUpperCase();
+  if (!roomCode || !displayName) {
+    setFeedback("Enter both room code and display name to join.", true);
+    return;
+  }
+
   const payload = {
-    roomCode: joinRoomCode.value.trim().toUpperCase(),
-    displayName: joinDisplayName.value.trim(),
+    roomCode,
+    displayName,
     role: joinRole.value,
   };
 
@@ -906,6 +1525,10 @@ joinRoomButton.addEventListener("click", () => {
 });
 
 rejoinRoomButton.addEventListener("click", () => {
+  if (!ensureRealtimeConnected("rejoin")) {
+    return;
+  }
+
   const cached = readSession();
   if (!cached) {
     showAuthPanel();
@@ -1007,45 +1630,23 @@ transferHostButton.addEventListener("click", () => {
   setFeedback("Host transferred successfully.");
 });
 
-selectAllWinnersButton.addEventListener("click", () => {
-  showdownWinnersList.querySelectorAll("input[type='checkbox']").forEach((cb) => {
-    cb.checked = true;
+if (selectAllWinnersButtonMain) {
+  selectAllWinnersButtonMain.addEventListener("click", () => {
+    setAllWinnerCheckboxes(showdownWinnersListMain, true);
   });
-});
+}
 
-clearAllWinnersButton.addEventListener("click", () => {
-  showdownWinnersList.querySelectorAll("input[type='checkbox']").forEach((cb) => {
-    cb.checked = false;
+if (clearAllWinnersButtonMain) {
+  clearAllWinnersButtonMain.addEventListener("click", () => {
+    setAllWinnerCheckboxes(showdownWinnersListMain, false);
   });
-});
+}
 
-declareWinnersButton.addEventListener("click", () => {
-  if (!currentRoom || !currentPlayerId) {
-    return;
-  }
-
-  const selectedWinnerIds = [...showdownWinnersList.querySelectorAll("input[type='checkbox']:checked")].map((el) => el.value);
-  if (selectedWinnerIds.length === 0) {
-    setFeedback("Select at least one winner.", true);
-    return;
-  }
-
-  const winnerNames = selectedWinnerIds.map((id) => {
-    const winner = currentRoom.players.find((p) => p.id === id);
-    return winner ? winner.displayName : "Unknown";
-  }).join(", ");
-
-  if (!confirm(`Award pot to ${winnerNames}? This cannot be undone.`)) {
-    return;
-  }
-
-  emit({
-    type: "declare_winners",
-    roomId: currentRoom.id,
-    actorPlayerId: currentPlayerId,
-    winnerIds: selectedWinnerIds,
+if (declareWinnersButtonMain) {
+  declareWinnersButtonMain.addEventListener("click", () => {
+    submitDeclaredWinnersFrom(showdownWinnersListMain);
   });
-});
+}
 
 handRankingsButton.addEventListener("click", () => {
   handRankingsList.innerHTML = HAND_RANKINGS.map(
@@ -1115,7 +1716,7 @@ socket.on("connect", () => {
   isSocketConnected = true;
   updateConnectionStatus("online");
   flushPendingChatMessages();
-  setFeedback("Connected to realtime server.");
+  setFeedback(`Connected to realtime server: ${activeServerLabel}`);
 });
 
 socket.on("disconnect", () => {
@@ -1129,7 +1730,7 @@ socket.on("disconnect", () => {
   if (currentRoom) {
     renderChatMessages(currentRoom);
   }
-  setFeedback("Disconnected. You can rejoin your room when connection returns.", true);
+  setFeedback(`Disconnected from ${activeServerLabel}. You can rejoin when connection returns.`, true);
 });
 
 socket.io.on("reconnect_attempt", () => {
@@ -1138,6 +1739,11 @@ socket.io.on("reconnect_attempt", () => {
 
 socket.io.on("reconnect_error", () => {
   updateConnectionStatus("reconnecting");
+});
+
+socket.on("connect_error", () => {
+  updateConnectionStatus("offline");
+  ensureRealtimeConnected("perform this action");
 });
 
 socket.on("event", (serverEvent) => {

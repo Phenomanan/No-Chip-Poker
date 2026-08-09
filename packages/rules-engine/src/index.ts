@@ -1,5 +1,13 @@
 import type { ActionKind, Payout, Pot, RoomState } from "../../shared-types/src/index.js";
 
+function playerContribution(player: RoomState["players"][number]): number {
+  if (Number.isFinite(player.totalContribution)) {
+    return Math.max(0, player.totalContribution);
+  }
+
+  return Math.max(0, player.commitment);
+}
+
 export interface ValidationResult {
   ok: boolean;
   message?: string;
@@ -24,6 +32,14 @@ export function validateBlinds(smallBlind: number, bigBlind: number): Validation
 export function canStartHand(room: RoomState, actorPlayerId: string): ValidationResult {
   if (room.hostPlayerId !== actorPlayerId) {
     return { ok: false, message: "Only the host can start a hand." };
+  }
+
+  if (room.payoutState === "pending_ack") {
+    return { ok: false, message: "A player must acknowledge the payout before the next hand starts." };
+  }
+
+  if (room.payoutState === "animating") {
+    return { ok: false, message: "Payout animation is still in progress." };
   }
 
   const activePlayers = room.players.filter((p) => p.role !== "spectator" && p.stack > 0);
@@ -106,21 +122,21 @@ export function validateAction(room: RoomState, actorPlayerId: string, action: A
 
 export function calculatePots(room: RoomState): Pot[] {
   const pots: Pot[] = [];
-  const activePlayers = room.players.filter((p) => p.role !== "spectator" && (p.inHand || p.commitment > 0));
+  const activePlayers = room.players.filter((p) => p.role !== "spectator" && (p.inHand || playerContribution(p) > 0));
 
   if (activePlayers.length === 0) {
     return pots;
   }
 
-  const sortedCommitments = [...new Set(activePlayers.map((p) => p.commitment))].sort((a, b) => a - b);
+  const sortedCommitments = [...new Set(activePlayers.map((p) => playerContribution(p)))].sort((a, b) => a - b);
 
   let previousAmount = 0;
   for (const commitment of sortedCommitments) {
-    const potAmount = (commitment - previousAmount) * activePlayers.filter((p) => p.commitment >= commitment).length;
+    const potAmount = (commitment - previousAmount) * activePlayers.filter((p) => playerContribution(p) >= commitment).length;
     if (potAmount > 0) {
       pots.push({
         amount: potAmount,
-        contributors: activePlayers.filter((p) => p.commitment >= commitment).map((p) => p.id),
+        contributors: activePlayers.filter((p) => playerContribution(p) >= commitment).map((p) => p.id),
       });
     }
     previousAmount = commitment;
@@ -134,7 +150,7 @@ export function determineWinners(room: RoomState): string[] {
   return playersInHand.map((p) => p.id);
 }
 
-export function calculatePayouts(room: RoomState, winnerIds?: string[]): Payout[] {
+export function calculatePayouts(room: RoomState, winnerIds?: string[], potWinnerIds?: string[][]): Payout[] {
   const payouts: Payout[] = [];
   const winners = winnerIds && winnerIds.length > 0 ? winnerIds : determineWinners(room);
 
@@ -143,8 +159,14 @@ export function calculatePayouts(room: RoomState, winnerIds?: string[]): Payout[
   }
 
   const pots = calculatePots(room);
-  for (const pot of pots) {
-    const potWinners = winners.filter((w) => pot.contributors.includes(w));
+  for (let i = 0; i < pots.length; i += 1) {
+    const pot = pots[i];
+    const explicitPotWinners = Array.isArray(potWinnerIds?.[i])
+      ? [...new Set(potWinnerIds[i])].filter((winnerId) => pot.contributors.includes(winnerId))
+      : [];
+    const potWinners = explicitPotWinners.length > 0
+      ? explicitPotWinners
+      : winners.filter((w) => pot.contributors.includes(w));
     if (potWinners.length > 0) {
       const chipsPerWinner = Math.floor(pot.amount / potWinners.length);
       const remainder = pot.amount % potWinners.length;
@@ -163,4 +185,32 @@ export function calculatePayouts(room: RoomState, winnerIds?: string[]): Payout[
   }
 
   return payouts;
+}
+
+export function validateWinnerCoverage(room: RoomState, winnerIds: string[], potWinnerIds?: string[][]): ValidationResult {
+  const uniqueWinnerIds = [...new Set(winnerIds)];
+  if (uniqueWinnerIds.length === 0) {
+    return { ok: false, message: "Select at least one eligible winner." };
+  }
+
+  const pots = calculatePots(room);
+  for (let i = 0; i < pots.length; i += 1) {
+    const pot = pots[i];
+    const explicitPotWinners = Array.isArray(potWinnerIds?.[i])
+      ? [...new Set(potWinnerIds[i])].filter((winnerId) => pot.contributors.includes(winnerId))
+      : [];
+    const covered = explicitPotWinners.length > 0
+      ? true
+      : uniqueWinnerIds.some((winnerId) => pot.contributors.includes(winnerId));
+    if (!covered) {
+      const label =
+        pots.length === 1 ? "pot" : i === 0 ? "main pot" : `side pot ${i}`;
+      return {
+        ok: false,
+        message: `Selected winners do not cover ${label}. Include at least one eligible winner per pot.`,
+      };
+    }
+  }
+
+  return { ok: true };
 }

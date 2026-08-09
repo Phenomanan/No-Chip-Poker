@@ -5,21 +5,23 @@
   "type": "module",
   "scripts": {
     "build:server": "tsc -p tsconfig.json",
-    "dev:server": "npx tsx watch apps/server/src/index.ts"
+    "dev:server": "npx tsx watch apps/server/src/index.ts",
+    "test:pot-regression": "npm run build:server && node scripts/test-pot-regression.mjs"
   },
   "dependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.23",
     "@types/node": "^18.19.119",
     "cors": "^2.8.5",
-    "express-rate-limit": "^7.5.0",
     "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "nanoid": "^5.1.5",
     "socket.io": "^4.8.1",
     "typescript": "^5.8.3"
   },
   "devDependencies": {
+    "socket.io-client": "^4.8.3",
     "tsx": "^4.19.3"
   }
 }

@@ -9,7 +9,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { customAlphabet } from "nanoid";
 import { Server } from "socket.io";
 
-import { calculatePayouts, calculatePots, canStartHand, validateAction, validateBlinds } from "../../../packages/rules-engine/src/index.js";
+import {
+  calculatePayouts,
+  calculatePots,
+  canStartHand,
+  validateAction,
+  validateBlinds,
+  validateWinnerCoverage,
+} from "../../../packages/rules-engine/src/index.js";
 import type {
   ActionEvent,
   BlindScheduleState,
@@ -128,6 +135,12 @@ interface PersistedState {
 }
 
 const DEFAULT_BLIND_LEVEL_DURATION_SECONDS = 15 * 60;
+const PAYOUT_ANIMATION_DURATION_MS = 1800;
+
+function payoutAnimationDurationMs(room: RoomState): number {
+  const recipientCount = Math.max(1, room.payouts.length);
+  return PAYOUT_ANIMATION_DURATION_MS + (recipientCount - 1) * 260;
+}
 
 function createDefaultBlindSchedule(): BlindScheduleState {
   return {
@@ -140,6 +153,14 @@ function createDefaultBlindSchedule(): BlindScheduleState {
 
 function normalizeRoomState(room: RoomState): RoomState {
   room.blindVote = room.blindVote ?? null;
+  room.payoutState = room.payoutState ?? "idle";
+  room.payoutAnimationEndsAt = Number.isFinite(room.payoutAnimationEndsAt) ? Number(room.payoutAnimationEndsAt) : null;
+  room.payoutAcknowledgedByPlayerId = room.payoutAcknowledgedByPlayerId ?? null;
+  room.players.forEach((player) => {
+    if (!Number.isFinite(player.totalContribution)) {
+      player.totalContribution = Math.max(0, player.commitment ?? 0);
+    }
+  });
 
   const schedule = room.blindSchedule;
   if (!schedule || typeof schedule !== "object") {
@@ -299,6 +320,28 @@ function cleanupExpiredRooms(): void {
   }
 }
 
+function tickPayoutAnimations(): void {
+  const now = Date.now();
+
+  for (const room of roomById.values()) {
+    if (room.payoutState !== "animating" || !room.payoutAnimationEndsAt || now < room.payoutAnimationEndsAt) {
+      continue;
+    }
+
+    for (const payout of room.payouts) {
+      const winner = room.players.find((p) => p.id === payout.playerId);
+      if (winner) {
+        winner.stack += payout.amount;
+      }
+    }
+
+    room.payoutState = "idle";
+    room.payoutAnimationEndsAt = null;
+    room.payoutAcknowledgedByPlayerId = null;
+    emitRoomState(room.id);
+  }
+}
+
 function emitRoomState(roomId: string): void {
   const room = roomById.get(roomId);
   if (!room) {
@@ -333,6 +376,32 @@ function findNextActingPlayer(room: RoomState, currentPlayerId: string): string 
   const playersInHand = room.players
     .filter((p) => p.inHand && p.role !== "spectator")
     .sort((a, b) => a.seat - b.seat);
+
+  if (room.currentBet === 0) {
+    const actionState = roomStreetActionState.get(room.id);
+    const eligiblePlayers = playersInHand.filter((p) => p.stack > 0);
+
+    if (eligiblePlayers.length === 0) {
+      return null;
+    }
+
+    const unactedPlayers = eligiblePlayers.filter(
+      (p) => !(actionState && actionState.street === room.street && actionState.actedPlayerIds.has(p.id))
+    );
+
+    if (unactedPlayers.length === 0) {
+      return null;
+    }
+
+    const currentSeat = room.players.find((p) => p.id === currentPlayerId)?.seat;
+    if (typeof currentSeat !== "number") {
+      return unactedPlayers[0]?.id ?? null;
+    }
+
+    const nextBySeat = unactedPlayers.find((p) => p.seat > currentSeat);
+    return (nextBySeat ?? unactedPlayers[0])?.id ?? null;
+  }
+
   const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
   const playersNeedingAction = playersInHand.filter((p) => p.stack > 0 && p.commitment < highestCommitment);
 
@@ -340,14 +409,13 @@ function findNextActingPlayer(room: RoomState, currentPlayerId: string): string 
     return null;
   }
 
-  const sorted = playersNeedingAction;
-  const index = sorted.findIndex((p) => p.id === currentPlayerId);
+  const index = playersNeedingAction.findIndex((p) => p.id === currentPlayerId);
   if (index < 0) {
-    return sorted[0]?.id ?? null;
+    return playersNeedingAction[0]?.id ?? null;
   }
 
-  const nextIndex = (index + 1) % sorted.length;
-  return sorted[nextIndex]?.id ?? null;
+  const nextIndex = (index + 1) % playersNeedingAction.length;
+  return playersNeedingAction[nextIndex]?.id ?? null;
 }
 
 function findFirstPostflopActingPlayer(room: RoomState): string | null {
@@ -388,6 +456,10 @@ function shouldSettleHand(room: RoomState): boolean {
   return !hasPendingAction;
 }
 
+function countActionCapablePlayers(room: RoomState): number {
+  return room.players.filter((p) => p.inHand && p.role !== "spectator" && p.stack > 0).length;
+}
+
 function resetStreetActionState(room: RoomState): void {
   roomStreetActionState.set(room.id, {
     street: room.street,
@@ -408,22 +480,20 @@ function markPlayerActedThisStreet(room: RoomState, playerId: string): void {
   existing.actedPlayerIds.add(playerId);
 }
 
-function settleHand(room: RoomState, winnerIds: string[]): void {
+function settleHand(room: RoomState, winnerIds: string[], potWinnerIds?: string[][]): void {
   room.street = "showdown";
   room.pots = calculatePots(room);
 
-  room.payouts = calculatePayouts(room, winnerIds);
+  room.payouts = calculatePayouts(room, winnerIds, potWinnerIds);
 
-  for (const payout of room.payouts) {
-    const winner = room.players.find((p) => p.id === payout.playerId);
-    if (winner) {
-      winner.stack += payout.amount;
-    }
-  }
+  room.payoutState = room.payouts.length > 0 ? "pending_ack" : "idle";
+  room.payoutAnimationEndsAt = null;
+  room.payoutAcknowledgedByPlayerId = null;
 
   for (const player of room.players) {
     player.inHand = false;
     player.commitment = 0;
+    player.totalContribution = 0;
   }
 
   room.status = "waiting";
@@ -440,6 +510,11 @@ function moveToShowdown(room: RoomState): void {
 }
 
 function advanceStreetOrShowdown(room: RoomState): void {
+  if (countActionCapablePlayers(room) <= 1) {
+    moveToShowdown(room);
+    return;
+  }
+
   const streetOrder: RoomState["street"][] = ["preflop", "flop", "turn", "river"];
   const streetIndex = streetOrder.indexOf(room.street);
 
@@ -492,6 +567,7 @@ function createHostPlayer(input: CreateRoomInput): Player {
     joinedAt: Date.now(),
     inHand: false,
     commitment: 0,
+    totalContribution: 0,
   };
 }
 
@@ -517,6 +593,9 @@ function createRoom(input: CreateRoomInput, host: Player): RoomState {
     players: [host],
     actionLog: [],
     payouts: [],
+    payoutState: "idle",
+    payoutAnimationEndsAt: null,
+    payoutAcknowledgedByPlayerId: null,
     messages: [],
     blindVote: null,
     blindSchedule: createDefaultBlindSchedule(),
@@ -676,6 +755,7 @@ function joinRoom(socketId: string, payload: JoinRoomInput): { room: RoomState; 
     joinedAt: Date.now(),
     inHand: false,
     commitment: 0,
+    totalContribution: 0,
   };
 
   const sessionId = createId();
@@ -800,6 +880,9 @@ io.on("connection", (socket) => {
       room.street = "preflop";
       room.pots = [];
       room.payouts = [];
+      room.payoutState = "idle";
+      room.payoutAnimationEndsAt = null;
+      room.payoutAcknowledgedByPlayerId = null;
       room.currentBet = 0;
       resetStreetActionState(room);
 
@@ -810,6 +893,7 @@ io.on("connection", (socket) => {
       for (const player of room.players) {
         player.inHand = player.role !== "spectator" && player.stack > 0;
         player.commitment = 0;
+        player.totalContribution = 0;
       }
 
       if (players.length >= 2) {
@@ -835,8 +919,10 @@ io.on("connection", (socket) => {
         const bb = players[bbIndex];
 
         sb.commitment = room.blinds.smallBlind;
+        sb.totalContribution = room.blinds.smallBlind;
         sb.stack -= room.blinds.smallBlind;
         bb.commitment = room.blinds.bigBlind;
+        bb.totalContribution = room.blinds.bigBlind;
         bb.stack -= room.blinds.bigBlind;
         room.currentBet = room.blinds.bigBlind;
         room.pots.push({
@@ -952,6 +1038,31 @@ io.on("connection", (socket) => {
         ? Date.now() + room.blindSchedule.levelDurationSeconds * 1000
         : null;
 
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "acknowledge_payout") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      const player = room.players.find((p) => p.id === event.actorPlayerId);
+      if (!player || player.role === "spectator") {
+        socket.emit("event", { type: "error", message: "Only players can acknowledge payout." });
+        return;
+      }
+
+      if (room.payoutState !== "pending_ack") {
+        socket.emit("event", { type: "error", message: "No payout waiting for acknowledgment." });
+        return;
+      }
+
+      room.payoutState = "animating";
+      room.payoutAcknowledgedByPlayerId = event.actorPlayerId;
+      room.payoutAnimationEndsAt = Date.now() + payoutAnimationDurationMs(room);
       emitRoomState(room.id);
       return;
     }
@@ -1131,13 +1242,17 @@ io.on("connection", (socket) => {
         const callAmount = room.currentBet - currentPlayer.commitment;
         currentPlayer.stack -= callAmount;
         currentPlayer.commitment = room.currentBet;
+        currentPlayer.totalContribution += callAmount;
       } else if (event.action === "raise" && typeof event.amount === "number") {
         const addAmount = event.amount - currentPlayer.commitment;
         currentPlayer.stack -= addAmount;
         currentPlayer.commitment = event.amount;
+        currentPlayer.totalContribution += addAmount;
         room.currentBet = event.amount;
       } else if (event.action === "all_in") {
-        currentPlayer.commitment += currentPlayer.stack;
+        const allInAmount = currentPlayer.stack;
+        currentPlayer.commitment += allInAmount;
+        currentPlayer.totalContribution += allInAmount;
         currentPlayer.stack = 0;
         room.currentBet = Math.max(room.currentBet, currentPlayer.commitment);
       }
@@ -1177,13 +1292,40 @@ io.on("connection", (socket) => {
       const eligibleWinnerIds = new Set(
         room.players.filter((p) => p.inHand && p.role !== "spectator").map((p) => p.id)
       );
-      const winnerIds = [...new Set(event.winnerIds)].filter((id) => eligibleWinnerIds.has(id));
+      const roomPots = calculatePots(room);
+      const requestedPotWinnerIds = Array.isArray(event.potWinnerIds) ? event.potWinnerIds : [];
+      const fallbackWinnerIds = [...new Set(event.winnerIds)].filter((id) => eligibleWinnerIds.has(id));
+      const normalizedPotWinnerIds = roomPots.map((pot, index) => {
+        const eligibleContributors = pot.contributors.filter((id) => eligibleWinnerIds.has(id));
+        if (eligibleContributors.length <= 1) {
+          return eligibleContributors;
+        }
+
+        const selected = Array.isArray(requestedPotWinnerIds[index]) ? requestedPotWinnerIds[index] : [];
+        const explicit = [...new Set(selected)].filter((id) => eligibleContributors.includes(id));
+        if (explicit.length > 0) {
+          return explicit;
+        }
+
+        // No explicit selection for this pot: fall back to the host's overall winner
+        // pick, not the merged winnerIds list (which may include players auto-assigned
+        // to other pots as the sole contributor there).
+        return fallbackWinnerIds.filter((id) => eligibleContributors.includes(id));
+      });
+
+      const winnerIds = [...new Set([...fallbackWinnerIds, ...normalizedPotWinnerIds.flat()])];
       if (winnerIds.length === 0) {
         socket.emit("event", { type: "error", message: "Select at least one eligible winner." });
         return;
       }
 
-      settleHand(room, winnerIds);
+      const winnerCoverage = validateWinnerCoverage(room, winnerIds, normalizedPotWinnerIds);
+      if (!winnerCoverage.ok) {
+        socket.emit("event", { type: "error", message: winnerCoverage.message ?? "Winner selection does not cover all pots." });
+        return;
+      }
+
+      settleHand(room, winnerIds, normalizedPotWinnerIds);
       emitRoomState(room.id);
       return;
     }
@@ -1204,6 +1346,7 @@ const port = Number(process.env.PORT ?? 3001);
 
 setInterval(cleanupExpiredRooms, Number.isFinite(roomCleanupIntervalMs) ? roomCleanupIntervalMs : 1000 * 60 * 5);
 setInterval(tickBlindSchedules, 1000);
+setInterval(tickPayoutAnimations, 150);
 
 async function startServer(): Promise<void> {
   await restoreStateFromDisk();

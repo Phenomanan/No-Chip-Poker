@@ -14,6 +14,7 @@ export interface Player {
   joinedAt: number;
   inHand: boolean;
   commitment: number;
+  totalContribution: number;
 }
 
 export interface Pot {
@@ -65,6 +66,9 @@ export interface RoomState {
   players: Player[];
   actionLog: ActionEvent[];
   payouts: Payout[];
+  payoutState: "idle" | "pending_ack" | "animating";
+  payoutAnimationEndsAt: number | null;
+  payoutAcknowledgedByPlayerId: string | null;
   messages: ChatMessage[];
   blindVote: BlindVoteState | null;
   blindSchedule: BlindScheduleState;
@@ -129,10 +133,17 @@ export type ClientEvent =
   | { type: "configure_blind_schedule"; roomId: string; actorPlayerId: string; levelDurationSeconds: number }
   | { type: "toggle_blind_schedule"; roomId: string; actorPlayerId: string; enabled: boolean }
   | { type: "reset_blind_schedule"; roomId: string; actorPlayerId: string }
+  | { type: "acknowledge_payout"; roomId: string; actorPlayerId: string }
   | { type: "submit_action"; roomId: string; actorPlayerId: string; action: ActionKind; amount?: number }
   | { type: "transfer_host"; roomId: string; actorPlayerId: string; newHostPlayerId: string }
   | { type: "send_message"; roomId: string; playerId: string; text: string; clientMessageId?: string }
-  | { type: "declare_winners"; roomId: string; actorPlayerId: string; winnerIds: string[] };
+  | {
+      type: "declare_winners";
+      roomId: string;
+      actorPlayerId: string;
+      winnerIds: string[];
+      potWinnerIds?: string[][];
+    };
 
 export interface ClientToServerEvents {
   event: (event: ClientEvent) => void;

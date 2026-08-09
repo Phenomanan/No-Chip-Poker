@@ -72,45 +72,66 @@
           </div>
         </div>
 
-        <div class="stats-grid">
-          <article class="priority-stat">
+        <div id="payout-banner" class="payout-banner hidden"></div>
+
+        <div class="stats-grid stats-grid-compact">
+          <article>
             <p>Your Stack</p>
             <strong id="your-stack">-</strong>
           </article>
-          <article class="priority-stat">
+          <article>
             <p>Your Bet</p>
             <strong id="your-commitment">-</strong>
           </article>
-          <article>
-            <p>Pot</p>
-            <strong id="pot">0</strong>
-          </article>
-          <article>
+          <article class="priority-stat">
             <p>Current Bet</p>
             <strong id="current-bet">0</strong>
           </article>
-          <article>
-            <p>Blinds</p>
-            <strong id="blinds">25 / 50</strong>
-          </article>
-          <article>
-            <p>Blind Level</p>
-            <strong id="blind-level">1</strong>
-          </article>
-          <article>
-            <p>Next Level</p>
-            <strong id="blind-timer">Off</strong>
-          </article>
-          <article>
+          <article class="priority-stat">
             <p>Acting Player</p>
             <strong id="acting-player">-</strong>
           </article>
         </div>
 
         <div class="control-grid">
+          <div class="card">
+            <h3>Your Actions</h3>
+            <div id="actions-container"></div>
+            <button id="hand-rankings-button" class="hand-rankings-link">📖 Hand Rankings</button>
+          </div>
+          <div class="card showdown-main-card hidden" id="showdown-main-card">
+            <h3>Showdown Resolution</h3>
+            <p id="showdown-main-status" class="showdown-hint">Waiting for showdown...</p>
+            <div id="showdown-winners-list-main" class="showdown-winners-list"></div>
+            <div id="showdown-actions-main" class="showdown-actions hidden" style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem;">
+              <button id="select-all-winners-button-main" class="ghost">Select All</button>
+              <button id="clear-all-winners-button-main" class="ghost">Clear All</button>
+            </div>
+            <button id="declare-winners-button-main" class="ghost hidden">Declare Winner(s)</button>
+          </div>
+        </div>
+
+        <div class="table-top-strip">
+          <article class="blind-strip-card">
+            <p>Blinds</p>
+            <strong id="blinds">25 / 50</strong>
+          </article>
+          <article id="next-blind-card" class="blind-strip-card hidden">
+            <p>Next Blind Increase</p>
+            <strong id="blind-timer">--:--</strong>
+          </article>
+          <button id="start-hand-button" class="start-hand-main">Start Hand</button>
+          <button id="table-settings-toggle" class="table-settings-toggle">Table Settings</button>
+        </div>
+
+        <div id="table-settings-panel" class="card settings-panel hidden">
+          <div class="settings-panel-head">
+            <h3>Table Settings</h3>
+            <button id="table-settings-close" class="ghost settings-close">Close</button>
+          </div>
+          <div id="blind-vote-panel" class="blind-vote-panel hidden"></div>
           <div class="card" id="host-controls-card">
             <h3>Host Controls</h3>
-            <button id="start-hand-button">Start Hand</button>
             <div class="inline-fields">
               <input id="update-sb" type="number" min="1" placeholder="SB" />
               <input id="update-bb" type="number" min="1" placeholder="BB" />
@@ -131,23 +152,22 @@
               <label>Transfer Host <select id="transfer-host-select"><option value="">Select player...</option></select></label>
               <button id="transfer-host-button" class="ghost" style="display: block; margin-top: 0.3rem;">Transfer</button>
             </div>
-            <div id="showdown-controls" class="showdown-box hidden">
-              <p class="showdown-title">Showdown: Declare Winner(s)</p>
-              <p class="showdown-hint">Select one or more winners. Side pots are paid automatically based on contributions.</p>
-              <div id="showdown-winners-list" class="showdown-winners-list"></div>
-              <div class="showdown-actions" style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem;">
-                <button id="select-all-winners-button" class="ghost">Select All</button>
-                <button id="clear-all-winners-button" class="ghost">Clear All</button>
-              </div>
-              <button id="declare-winners-button" class="ghost">Declare Winner(s)</button>
+          </div>
+        </div>
+
+        <div class="table-center-wrap">
+          <button id="pot-visual-button" class="pot-visual-button" aria-label="Show pot breakdown">
+            <div class="pot-visual-head">
+              <span id="pot-title-label">Table Pot</span>
+              <strong id="pot">0</strong>
             </div>
-          </div>
-          <div class="card">
-            <h3>Your Actions</h3>
-            <button id="hand-rankings-button" class="ghost" style="margin-bottom: 0.8rem; width: 100%;">📖 Hand Rankings</button>
-            <div id="actions-container"></div>
-            <div id="blind-vote-panel" class="blind-vote-panel hidden"></div>
-          </div>
+            <div id="pot-visual-stacks" class="pot-visual-stacks"></div>
+          </button>
+          <section class="table-turn-visual" aria-label="Table flow visual">
+            <h4>Table Flow</h4>
+            <div id="turn-order-track" class="turn-order-track"></div>
+            <div id="turn-state-legend" class="turn-state-legend"></div>
+          </section>
         </div>
 
         <div class="room-grid">
@@ -177,44 +197,28 @@
 
       <div id="hand-rankings-modal" class="modal hidden">
         <div class="modal-content">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div class="modal-header">
             <h3>Poker Hand Rankings</h3>
-            <button id="close-rankings-button" class="ghost" style="padding: 0.2rem 0.5rem; font-size: 1.2rem;">×</button>
+            <button id="close-rankings-button" class="modal-close-button" aria-label="Close">×</button>
           </div>
           <div id="hand-rankings-list"></div>
         </div>
       </div>
+
+      <div id="chip-detail-modal" class="modal hidden">
+        <div class="modal-content chip-detail-content">
+          <div class="modal-header">
+            <h3 id="chip-detail-title">Chip Breakdown</h3>
+            <button id="close-chip-detail-button" class="modal-close-button" aria-label="Close">×</button>
+          </div>
+          <div id="chip-detail-body"></div>
+        </div>
+      </div>
     </main>
 
+    <!-- External (not inline) so it isn't blocked by the server's default script-src 'self' CSP. -->
+    <script src="./src/theme.js"></script>
     <script src="./src/config.js"></script>
-    <script>
-      // Apply saved theme before page renders to avoid flash
-      (function () {
-        const saved = localStorage.getItem("no-chip-theme");
-        if (saved === "dark") document.documentElement.setAttribute("data-theme", "dark");
-        window.addEventListener("DOMContentLoaded", function () {
-          const btn = document.getElementById("theme-toggle");
-          function applyTheme(theme) {
-            if (theme === "dark") {
-              document.documentElement.setAttribute("data-theme", "dark");
-              btn.textContent = "☀️";
-              btn.title = "Switch to light mode";
-            } else {
-              document.documentElement.removeAttribute("data-theme");
-              btn.textContent = "🌙";
-              btn.title = "Switch to dark mode";
-            }
-          }
-          applyTheme(saved || "light");
-          btn.addEventListener("click", function () {
-            const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-            const next = isDark ? "light" : "dark";
-            localStorage.setItem("no-chip-theme", next);
-            applyTheme(next);
-          });
-        });
-      })();
-    </script>
     <script type="module" src="./src/bootstrap.js"></script>
   </body>
 </html>
