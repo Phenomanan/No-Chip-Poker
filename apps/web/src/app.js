@@ -68,6 +68,7 @@ const raiseAmountInput = document.querySelector("#raise-amount-input");
 const createRoomButton = document.querySelector("#create-room-button");
 const joinRoomButton = document.querySelector("#join-room-button");
 const rejoinRoomButton = document.querySelector("#rejoin-room-button");
+const leaveRoomButton = document.querySelector("#leave-room-button");
 const startHandButton = document.querySelector("#start-hand-button");
 const updateBlindsButton = document.querySelector("#update-blinds-button");
 const saveScheduleButton = document.querySelector("#save-schedule-button");
@@ -409,11 +410,6 @@ function clearSession(roomCode) {
   writeSessionStore(store);
 }
 
-function sessionCount() {
-  const store = readSessionStore();
-  return Object.keys(store).length;
-}
-
 function markRoomAsMostRecent(roomCode) {
   const normalized = String(roomCode || "").trim().toUpperCase();
   if (!normalized) {
@@ -427,6 +423,28 @@ function showRoomPanel(room) {
   authPanel.classList.add("hidden");
   roomPanel.classList.remove("hidden");
   renderRoom(room);
+}
+
+// Tries to silently resume the last saved session on this socket connection —
+// used both right after a full page load/refresh and after the socket.io
+// client auto-reconnects from a network blip, so players don't have to
+// manually hit "Rejoin Last Session" in either case. Prefers the currently
+// open room's session (mid-session reconnect) over "whatever was last used"
+// (fresh page load).
+function attemptAutoRejoin() {
+  const cached = readSession(currentRoom?.code);
+  if (!cached) {
+    return false;
+  }
+
+  emit({
+    type: "rejoin_room",
+    payload: {
+      roomCode: cached.roomCode,
+      sessionId: cached.sessionId,
+    },
+  });
+  return true;
 }
 
 function showAuthPanel() {
@@ -1692,21 +1710,35 @@ rejoinRoomButton.addEventListener("click", () => {
     return;
   }
 
-  const cached = readSession();
-  if (!cached) {
+  if (!attemptAutoRejoin()) {
     showAuthPanel();
     setFeedback("No previous session found in this browser.", true);
-    return;
   }
-
-  emit({
-    type: "rejoin_room",
-    payload: {
-      roomCode: cached.roomCode,
-      sessionId: cached.sessionId,
-    },
-  });
 });
+
+if (leaveRoomButton) {
+  leaveRoomButton.addEventListener("click", () => {
+    if (!currentRoom) {
+      return;
+    }
+
+    if (!window.confirm("Leave this room? You'll need the room code to rejoin.")) {
+      return;
+    }
+
+    clearSession(currentRoom.code);
+    showAuthPanel();
+    setFeedback("Left the room.");
+
+    // A plain UI reset isn't enough: the old socket is still joined to the
+    // room's channel server-side and would keep receiving room_state
+    // broadcasts. Forcing a fresh connection (client-initiated disconnects
+    // don't auto-reconnect, so this needs an explicit connect()) makes the
+    // server mark this player disconnected, same as closing the tab would.
+    socket.disconnect();
+    socket.connect();
+  });
+}
 
 startHandButton.addEventListener("click", () => {
   if (!currentRoom || !currentPlayerId) {
@@ -1879,7 +1911,17 @@ socket.on("connect", () => {
   isSocketConnected = true;
   updateConnectionStatus("online");
   flushPendingChatMessages();
-  setFeedback(`Connected to realtime server: ${activeServerLabel}`);
+
+  // Covers both a fresh page load/refresh (currentRoom is still null, so this
+  // resumes whatever session was last saved) and the socket.io client's own
+  // automatic reconnection after a network blip (currentRoom is already set,
+  // so this re-attaches the same room/session over the new socket) — neither
+  // case should require the player to notice anything or click a button.
+  if (attemptAutoRejoin()) {
+    setFeedback("Reconnected. Restoring your session...");
+  } else {
+    setFeedback(`Connected to realtime server: ${activeServerLabel}`);
+  }
 });
 
 socket.on("disconnect", () => {
@@ -1893,7 +1935,7 @@ socket.on("disconnect", () => {
   if (currentRoom) {
     renderChatMessages(currentRoom);
   }
-  setFeedback(`Disconnected from ${activeServerLabel}. You can rejoin when connection returns.`, true);
+  setFeedback(`Disconnected from ${activeServerLabel}. Reconnecting automatically...`, true);
 });
 
 socket.io.on("reconnect_attempt", () => {
@@ -1967,9 +2009,6 @@ socket.on("event", (serverEvent) => {
   }
 });
 
-if (sessionCount() > 0) {
-  setFeedback(`Saved sessions found (${sessionCount()}). Use Rejoin Saved Session directly - no fields required.`);
-}
 
 setInterval(() => {
   if (currentRoom) {

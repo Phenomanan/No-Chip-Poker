@@ -904,6 +904,13 @@ button.action.danger {
   color: var(--accent);
 }
 
+.leave-room-button {
+  padding: 0.35rem 0.6rem;
+  min-height: unset;
+  font-size: 0.8rem;
+  border-radius: 999px;
+}
+
 ul {
   list-style: none;
   padding: 0;
