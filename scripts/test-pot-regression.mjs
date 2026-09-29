@@ -305,8 +305,12 @@ async function runScenario() {
     await wait(220);
     state = snapshot("river_fold_resolve");
 
-    if (state.status !== "waiting" || state.payoutState !== "pending_ack") {
-      throw new Error("Expected pending payout acknowledgment after hand resolution");
+    // Payout is no longer gated behind a separate player "acknowledge" step:
+    // the host declaring the winner is the only decision required, and chips
+    // are credited to the winner's stack immediately. "animating" is purely a
+    // cosmetic window for the client-side chip animation.
+    if (state.status !== "waiting" || state.payoutState !== "animating") {
+      throw new Error("Expected payout to start animating immediately after hand resolution");
     }
 
     const winnerPayout = state.payouts[0];
@@ -314,12 +318,12 @@ async function runScenario() {
       throw new Error("Expected payout entry after hand resolution");
     }
 
-    const winnerBeforeAnimation = state.players.find((player) => player.id === winnerPayout.playerId)?.stack;
-    if (!Number.isFinite(winnerBeforeAnimation)) {
-      throw new Error("Winner stack not found before animation");
+    const winnerStackAfterResolve = state.players.find((player) => player.id === winnerPayout.playerId)?.stack;
+    if (!Number.isFinite(winnerStackAfterResolve)) {
+      throw new Error("Winner stack not found after resolution");
     }
 
-    // Start hand should be blocked until payout flow is complete.
+    // Start hand should be blocked until the (purely cosmetic) animation finishes.
     hostSocket.emit("event", {
       type: "start_hand",
       roomId,
@@ -330,30 +334,18 @@ async function runScenario() {
       throw new Error("Expected start hand to be blocked by payout state");
     }
 
-    // Any player can acknowledge payout animation.
-    p2Socket.emit("event", {
-      type: "acknowledge_payout",
-      roomId,
-      actorPlayerId: p2Id,
-    });
-
-    await wait(220);
-    state = snapshot("payout_animating");
-    if (state.payoutState !== "animating") {
-      throw new Error("Expected payout animation phase after acknowledgment");
-    }
-
-    // Wait beyond animation duration so credits apply.
+    // Wait beyond animation duration; it should clear on its own, no player
+    // action required.
     await wait(2200);
     state = snapshot("payout_completed");
 
     if (state.payoutState !== "idle") {
-      throw new Error("Expected payout state to return to idle after animation");
+      throw new Error("Expected payout state to return to idle after animation, with no acknowledgment needed");
     }
 
-    const winnerAfterAnimation = state.players.find((player) => player.id === winnerPayout.playerId)?.stack;
-    if (!Number.isFinite(winnerAfterAnimation) || winnerAfterAnimation <= winnerBeforeAnimation) {
-      throw new Error("Winner stack did not increase after payout animation completion");
+    const winnerStackAfterAnimation = state.players.find((player) => player.id === winnerPayout.playerId)?.stack;
+    if (winnerStackAfterAnimation !== winnerStackAfterResolve) {
+      throw new Error("Winner stack should not change again once the cosmetic animation completes");
     }
 
     for (let i = 1; i < snapshots.length; i += 1) {
@@ -560,8 +552,8 @@ async function runSidePotScenario() {
 
     await wait(220);
     state = getState();
-    if (!state || state.status !== "waiting" || state.payoutState !== "pending_ack") {
-      throw new Error("Expected waiting state with pending payout after valid side-pot declaration");
+    if (!state || state.status !== "waiting" || state.payoutState !== "animating") {
+      throw new Error("Expected waiting state with payout already credited after valid side-pot declaration");
     }
 
     const payoutTotal = (state.payouts || []).reduce((sum, payout) => sum + (Number(payout.amount) || 0), 0);
@@ -569,8 +561,7 @@ async function runSidePotScenario() {
       throw new Error(`Payout total mismatch for side-pot scenario: expected ${expectedTotal}, got ${payoutTotal}`);
     }
 
-    // Acknowledge + complete payout so room lifecycle remains valid.
-    p2Socket.emit("event", { type: "acknowledge_payout", roomId, actorPlayerId: p2Id });
+    // Let the cosmetic animation window finish on its own; no acknowledgment needed.
     await wait(2300);
   } finally {
     hostSocket.disconnect();
@@ -765,8 +756,8 @@ async function runContestedSidePotScenario() {
 
     await wait(220);
     state = getState();
-    if (!state || state.status !== "waiting" || state.payoutState !== "pending_ack") {
-      throw new Error("Expected waiting state with pending payout after contested side-pot declaration");
+    if (!state || state.status !== "waiting" || state.payoutState !== "animating") {
+      throw new Error("Expected waiting state with payout already credited after contested side-pot declaration");
     }
 
     const payouts = state.payouts || [];
@@ -791,7 +782,7 @@ async function runContestedSidePotScenario() {
       throw new Error(`Side-pot loser should receive nothing, got ${callerPayout}.`);
     }
 
-    p2Socket.emit("event", { type: "acknowledge_payout", roomId, actorPlayerId: p2Id });
+    // Let the cosmetic animation window finish on its own; no acknowledgment needed.
     await wait(2300);
 
     console.log("PASS contested side-pot explicit per-pot winners");
@@ -916,11 +907,11 @@ async function runHeadsUpUnevenStacksAllInScenario() {
     await wait(220);
     state = getState();
 
-    if (state.payoutState !== "pending_ack") {
-      throw new Error("Expected pending payout after hand 1 fold");
+    if (state.payoutState !== "animating") {
+      throw new Error("Expected payout to be credited (and animating) after hand 1 fold");
     }
 
-    p2Socket.emit("event", { type: "acknowledge_payout", roomId, actorPlayerId: p2Id });
+    // Let the cosmetic animation window finish on its own; no acknowledgment needed.
     await wait(2300);
     state = getState();
 
@@ -973,8 +964,8 @@ async function runHeadsUpUnevenStacksAllInScenario() {
 
     await wait(220);
     state = getState();
-    if (!state || state.payoutState !== "pending_ack") {
-      throw new Error("Expected pending payout after hand 2 showdown declaration");
+    if (!state || state.payoutState !== "animating") {
+      throw new Error("Expected payout to be credited (and animating) after hand 2 showdown declaration");
     }
 
     const shortStackPayout = state.payouts.find((p) => p.playerId === shortStackId)?.amount ?? 0;
@@ -990,7 +981,7 @@ async function runHeadsUpUnevenStacksAllInScenario() {
       throw new Error(`Big stack should only get back their uncalled excess (468), got ${bigStackPayout}.`);
     }
 
-    p2Socket.emit("event", { type: "acknowledge_payout", roomId, actorPlayerId: p2Id });
+    // Let the cosmetic animation window finish on its own; no acknowledgment needed.
     await wait(2300);
 
     console.log("PASS heads-up uneven-stacks all-in payout");

@@ -72,6 +72,8 @@
           </div>
         </div>
 
+        <div id="dealer-instruction-banner" class="dealer-instruction-banner hidden"></div>
+
         <div id="payout-banner" class="payout-banner hidden"></div>
 
         <div class="stats-grid stats-grid-compact">
@@ -132,6 +134,11 @@
           <div id="blind-vote-panel" class="blind-vote-panel hidden"></div>
           <div class="card" id="host-controls-card">
             <h3>Host Controls</h3>
+            <div style="margin-bottom: 1rem;">
+              <h4 style="margin: 0 0 0.4rem 0;">Table Order &amp; Players</h4>
+              <p class="card-hint" id="host-player-list-hint">Drag to set seat order. Order is locked while a hand is in progress.</p>
+              <ul id="host-player-list" class="host-player-list"></ul>
+            </div>
             <div class="inline-fields">
               <input id="update-sb" type="number" min="1" placeholder="SB" />
               <input id="update-bb" type="number" min="1" placeholder="BB" />

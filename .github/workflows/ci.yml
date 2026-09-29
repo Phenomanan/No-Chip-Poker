@@ -7,8 +7,8 @@ on:
   pull_request:
 
 jobs:
-  pot-regression:
-    name: Pot Regression Test
+  test:
+    name: Test Suite
     runs-on: ubuntu-latest
 
     steps:
@@ -24,5 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run rules-engine unit tests
+        run: npm run test:rules-engine
+
       - name: Run pot regression
         run: npm run test:pot-regression
+
+      - name: Run admin controls integration tests
+        run: npm run test:admin-controls

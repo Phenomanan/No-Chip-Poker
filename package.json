@@ -6,7 +6,10 @@
   "scripts": {
     "build:server": "tsc -p tsconfig.json",
     "dev:server": "npx tsx watch apps/server/src/index.ts",
-    "test:pot-regression": "npm run build:server && node scripts/test-pot-regression.mjs"
+    "test:rules-engine": "npm run build:server && node scripts/test-rules-engine.mjs",
+    "test:pot-regression": "npm run build:server && node scripts/test-pot-regression.mjs",
+    "test:admin-controls": "npm run build:server && node scripts/test-admin-controls.mjs",
+    "test": "npm run build:server && node scripts/test-rules-engine.mjs && node scripts/test-pot-regression.mjs && node scripts/test-admin-controls.mjs"
   },
   "dependencies": {
     "@types/cors": "^2.8.17",

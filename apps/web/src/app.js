@@ -28,6 +28,9 @@ const roomCodeEl = document.querySelector("#room-code");
 const roomNameEl = document.querySelector("#room-name");
 const roomStatusEl = document.querySelector("#room-status");
 const roomStreetEl = document.querySelector("#room-street");
+const dealerInstructionBannerEl = document.querySelector("#dealer-instruction-banner");
+const hostPlayerListEl = document.querySelector("#host-player-list");
+const hostPlayerListHintEl = document.querySelector("#host-player-list-hint");
 const potEl = document.querySelector("#pot");
 const potTitleLabelEl = document.querySelector("#pot-title-label");
 const potVisualButton = document.querySelector("#pot-visual-button");
@@ -128,6 +131,66 @@ function formatStreet(street) {
     resolved: "Resolved",
   };
   return labels[street] ?? street;
+}
+
+// Explicit, always-visible dealer instructions per street — testers found the
+// old bare street label ("Current stage: Flop") too easy to miss/misread, so
+// this spells out exactly what the physical dealer should do right now.
+function formatDealerInstruction(room) {
+  if (room.status === "in_hand") {
+    switch (room.street) {
+      case "preflop":
+        return {
+          title: "Preflop — deal 2 hole cards to each player",
+          detail: "Action starts to the left of the big blind.",
+        };
+      case "flop":
+        return {
+          title: "Flop — deal 3 community cards face-up",
+          detail: "Burn one card first, then place three face-up in the middle.",
+        };
+      case "turn":
+        return {
+          title: "Turn — deal 1 more community card",
+          detail: "Burn one card first, then place the 4th card face-up.",
+        };
+      case "river":
+        return {
+          title: "River — deal the final community card",
+          detail: "Burn one card first, then place the 5th and last card face-up.",
+        };
+      default:
+        return null;
+    }
+  }
+
+  if (room.status === "paused" && room.street === "showdown") {
+    return {
+      title: "Showdown — reveal hands",
+      detail: "Players show their cards; the host selects the winner(s) below.",
+    };
+  }
+
+  return null;
+}
+
+function renderDealerInstructionBanner(room) {
+  if (!dealerInstructionBannerEl) {
+    return;
+  }
+
+  const instruction = formatDealerInstruction(room);
+  if (!instruction) {
+    dealerInstructionBannerEl.classList.add("hidden");
+    dealerInstructionBannerEl.innerHTML = "";
+    return;
+  }
+
+  dealerInstructionBannerEl.classList.remove("hidden");
+  dealerInstructionBannerEl.innerHTML = `
+    <p class="dealer-instruction-title">${escapeHtml(instruction.title)}</p>
+    <p class="dealer-instruction-detail">${escapeHtml(instruction.detail)}</p>
+  `;
 }
 
 function formatHandStatus(room, playerId) {
@@ -333,6 +396,17 @@ function readSession(preferredRoomCode) {
   }
 
   return null;
+}
+
+function clearSession(roomCode) {
+  const normalized = String(roomCode || "").trim().toUpperCase();
+  if (!normalized) {
+    return;
+  }
+
+  const store = readSessionStore();
+  delete store[normalized];
+  writeSessionStore(store);
 }
 
 function sessionCount() {
@@ -1080,7 +1154,8 @@ function renderRoom(room) {
   roomNameEl.textContent = room.name;
   roomStatusEl.textContent = `Hand Status: ${formatHandStatus(room, currentPlayerId)}`;
   roomStreetEl.textContent = `Current stage: ${formatStreet(room.street)}`;
-  
+  renderDealerInstructionBanner(room);
+
   const totalPot = Array.isArray(room.pots) ? room.pots.reduce((sum, p) => sum + p.amount, 0) : 0;
   potEl.textContent = String(totalPot);
   renderPotTitleLabel(room);
@@ -1125,6 +1200,7 @@ function renderRoom(room) {
   const isHost = currentPlayerId === room.hostPlayerId;
   const canDeclareShowdown = room.status === "paused" && room.street === "showdown";
   hostControlsCard.style.display = isHost ? 'block' : 'none';
+  renderHostPlayerList(room, isHost);
   if (startHandButton) {
     const payoutReady = room.payoutState === "idle";
     const showStartHand = isHost && room.status === "waiting" && payoutReady;
@@ -1380,46 +1456,15 @@ function renderPayoutBanner(room) {
     })
     .join(" • ");
 
-  if (room.payoutState === "pending_ack") {
-    if (potVisualButton) {
-      potVisualButton.classList.remove("payout-distributing");
-    }
-    payoutBannerEl.classList.remove("hidden");
-    payoutBannerEl.innerHTML = `
-      <div>
-        <p class="payout-banner-text">${payoutSummary}!</p>
-        <p class="payout-banner-sub">Any player can acknowledge to trigger payout animation.</p>
-      </div>
-      <button id="acknowledge-payout-button" class="ghost payout-ack-button">Acknowledge</button>
-    `;
-
-    const acknowledgeButton = document.querySelector("#acknowledge-payout-button");
-    if (acknowledgeButton) {
-      acknowledgeButton.addEventListener("click", () => {
-        if (!currentRoom || !currentPlayerId) {
-          return;
-        }
-
-        emit({
-          type: "acknowledge_payout",
-          roomId: currentRoom.id,
-          actorPlayerId: currentPlayerId,
-        });
-      });
-    }
-    return;
-  }
-
   if (room.payoutState === "animating") {
     if (potVisualButton) {
       potVisualButton.classList.add("payout-distributing");
     }
-    const actor = room.players.find((player) => player.id === room.payoutAcknowledgedByPlayerId)?.displayName || "A player";
     payoutBannerEl.classList.remove("hidden");
     payoutBannerEl.innerHTML = `
       <div>
         <p class="payout-banner-text">${payoutSummary}!</p>
-        <p class="payout-banner-sub">${actor} acknowledged payout. Chips are being pushed now...</p>
+        <p class="payout-banner-sub">Chips are being pushed now...</p>
       </div>
     `;
     return;
@@ -1435,6 +1480,124 @@ function renderPayoutBanner(room) {
       <p class="payout-banner-sub">Payout complete. Ready for next hand.</p>
     </div>
   `;
+}
+
+function renderHostPlayerList(room, isHost) {
+  if (!hostPlayerListEl) {
+    return;
+  }
+
+  if (!isHost) {
+    hostPlayerListEl.innerHTML = "";
+    return;
+  }
+
+  const reorderLocked = room.status === "in_hand";
+  if (hostPlayerListHintEl) {
+    hostPlayerListHintEl.textContent = reorderLocked
+      ? "Table order is locked while a hand is in progress."
+      : "Drag a row by its handle to set seat order. Removing a player takes effect immediately.";
+  }
+
+  const seatedPlayers = room.players.filter((p) => p.role !== "spectator").sort((a, b) => a.seat - b.seat);
+  const spectators = room.players.filter((p) => p.role === "spectator");
+
+  const rowHtml = (p, seatLabel) => {
+    const isSelf = p.id === currentPlayerId;
+    const isHostRow = p.id === room.hostPlayerId;
+    const tag = isHostRow
+      ? ' <span class="spectator-tag">(host)</span>'
+      : isSelf
+        ? ' <span class="spectator-tag">(you)</span>'
+        : "";
+    const canDrag = p.role !== "spectator" && !reorderLocked;
+    return `
+      <li class="host-player-row${reorderLocked ? " reorder-disabled" : ""}" data-player-id="${p.id}" data-spectator="${p.role === "spectator"}">
+        <span class="drag-handle" ${canDrag ? "" : 'style="visibility:hidden"'} title="Drag to reorder">⠿</span>
+        <span class="host-player-seat">${seatLabel}</span>
+        <span class="host-player-name">${escapeHtml(p.displayName)}${tag}</span>
+        ${isHostRow ? "" : `<button type="button" class="host-player-remove-button" data-remove-player-id="${p.id}">Remove</button>`}
+      </li>
+    `;
+  };
+
+  hostPlayerListEl.innerHTML =
+    seatedPlayers.map((p) => rowHtml(p, `#${p.seat}`)).join("") + spectators.map((p) => rowHtml(p, "spec")).join("");
+
+  hostPlayerListEl.querySelectorAll("[data-remove-player-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const targetId = button.getAttribute("data-remove-player-id");
+      const target = room.players.find((p) => p.id === targetId);
+      if (!currentRoom || !currentPlayerId || !target) {
+        return;
+      }
+
+      if (!window.confirm(`Remove ${target.displayName} from the room? This cannot be undone.`)) {
+        return;
+      }
+
+      emit({
+        type: "remove_player",
+        roomId: currentRoom.id,
+        actorPlayerId: currentPlayerId,
+        targetPlayerId: targetId,
+      });
+    });
+  });
+
+  if (!reorderLocked) {
+    hostPlayerListEl.querySelectorAll(".host-player-row[data-spectator='false'] .drag-handle").forEach((handle) => {
+      handle.addEventListener("pointerdown", startHostPlayerDrag);
+    });
+  }
+}
+
+// Pointer Events (not the HTML5 drag-and-drop API) so the same code drives
+// both mouse drag and touch drag — this is a poker companion app, most
+// players are reordering seats from a phone at the table.
+function startHostPlayerDrag(event) {
+  const row = event.target.closest(".host-player-row");
+  if (!row || !hostPlayerListEl) {
+    return;
+  }
+
+  event.preventDefault();
+  row.classList.add("dragging");
+
+  const seatedRowSelector = ".host-player-row[data-spectator='false']";
+
+  const onMove = (moveEvent) => {
+    const siblings = [...hostPlayerListEl.querySelectorAll(seatedRowSelector)].filter((el) => el !== row);
+    const afterElement = siblings.find((sibling) => moveEvent.clientY < sibling.getBoundingClientRect().top + sibling.getBoundingClientRect().height / 2);
+
+    if (afterElement) {
+      hostPlayerListEl.insertBefore(row, afterElement);
+    } else if (siblings.length > 0) {
+      hostPlayerListEl.insertBefore(row, siblings[siblings.length - 1].nextSibling);
+    }
+  };
+
+  const onUp = () => {
+    row.classList.remove("dragging");
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+
+    if (!currentRoom || !currentPlayerId) {
+      return;
+    }
+
+    const newOrder = [...hostPlayerListEl.querySelectorAll(seatedRowSelector)].map((el) => el.getAttribute("data-player-id"));
+
+    emit({
+      type: "reorder_seats",
+      roomId: currentRoom.id,
+      actorPlayerId: currentPlayerId,
+      orderedPlayerIds: newOrder,
+    });
+  };
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp, { once: true });
 }
 
 function emit(event) {
@@ -1748,7 +1911,11 @@ socket.on("connect_error", () => {
 
 socket.on("event", (serverEvent) => {
   if (serverEvent.type === "error") {
-    if (serverEvent.message === "Session expired. Join again with display name.") {
+    if (
+      serverEvent.message === "Session expired. Join again with display name." ||
+      serverEvent.message === "You have been removed from the room by the host."
+    ) {
+      clearSession(currentRoom?.code);
       showAuthPanel();
     }
     setFeedback(serverEvent.message, true);

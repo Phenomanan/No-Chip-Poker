@@ -12,7 +12,13 @@ import { Server } from "socket.io";
 import {
   calculatePayouts,
   calculatePots,
+  canReorderSeats,
+  canRemovePlayer,
   canStartHand,
+  countActionCapablePlayers,
+  findFirstPostflopActingPlayer,
+  findNextActingPlayer,
+  shouldSettleHand,
   validateAction,
   validateBlinds,
   validateWinnerCoverage,
@@ -153,9 +159,12 @@ function createDefaultBlindSchedule(): BlindScheduleState {
 
 function normalizeRoomState(room: RoomState): RoomState {
   room.blindVote = room.blindVote ?? null;
-  room.payoutState = room.payoutState ?? "idle";
+  // Older persisted snapshots may still have the retired "pending_ack" state
+  // from the removed payout-acknowledgment step; treat anything but a known
+  // value as idle (payouts are applied to stacks synchronously now, so there's
+  // nothing left pending to resume).
+  room.payoutState = room.payoutState === "animating" ? "animating" : "idle";
   room.payoutAnimationEndsAt = Number.isFinite(room.payoutAnimationEndsAt) ? Number(room.payoutAnimationEndsAt) : null;
-  room.payoutAcknowledgedByPlayerId = room.payoutAcknowledgedByPlayerId ?? null;
   room.players.forEach((player) => {
     if (!Number.isFinite(player.totalContribution)) {
       player.totalContribution = Math.max(0, player.commitment ?? 0);
@@ -328,16 +337,10 @@ function tickPayoutAnimations(): void {
       continue;
     }
 
-    for (const payout of room.payouts) {
-      const winner = room.players.find((p) => p.id === payout.playerId);
-      if (winner) {
-        winner.stack += payout.amount;
-      }
-    }
-
+    // Stacks were already credited in settleHand; this just clears the purely
+    // cosmetic "animating" window once it's played out client-side.
     room.payoutState = "idle";
     room.payoutAnimationEndsAt = null;
-    room.payoutAcknowledgedByPlayerId = null;
     emitRoomState(room.id);
   }
 }
@@ -372,92 +375,13 @@ function nextSeat(room: RoomState): number {
   return Math.max(...room.players.map((p) => p.seat)) + 1;
 }
 
-function findNextActingPlayer(room: RoomState, currentPlayerId: string): string | null {
-  const playersInHand = room.players
-    .filter((p) => p.inHand && p.role !== "spectator")
-    .sort((a, b) => a.seat - b.seat);
-
-  if (room.currentBet === 0) {
-    const actionState = roomStreetActionState.get(room.id);
-    const eligiblePlayers = playersInHand.filter((p) => p.stack > 0);
-
-    if (eligiblePlayers.length === 0) {
-      return null;
-    }
-
-    const unactedPlayers = eligiblePlayers.filter(
-      (p) => !(actionState && actionState.street === room.street && actionState.actedPlayerIds.has(p.id))
-    );
-
-    if (unactedPlayers.length === 0) {
-      return null;
-    }
-
-    const currentSeat = room.players.find((p) => p.id === currentPlayerId)?.seat;
-    if (typeof currentSeat !== "number") {
-      return unactedPlayers[0]?.id ?? null;
-    }
-
-    const nextBySeat = unactedPlayers.find((p) => p.seat > currentSeat);
-    return (nextBySeat ?? unactedPlayers[0])?.id ?? null;
-  }
-
-  const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
-  const playersNeedingAction = playersInHand.filter((p) => p.stack > 0 && p.commitment < highestCommitment);
-
-  if (playersNeedingAction.length === 0) {
-    return null;
-  }
-
-  const index = playersNeedingAction.findIndex((p) => p.id === currentPlayerId);
-  if (index < 0) {
-    return playersNeedingAction[0]?.id ?? null;
-  }
-
-  const nextIndex = (index + 1) % playersNeedingAction.length;
-  return playersNeedingAction[nextIndex]?.id ?? null;
-}
-
-function findFirstPostflopActingPlayer(room: RoomState): string | null {
-  const playersInHand = room.players
-    .filter((p) => p.inHand && p.role !== "spectator" && p.stack > 0)
-    .sort((a, b) => a.seat - b.seat);
-
-  if (playersInHand.length === 0) {
-    return null;
-  }
-
-  const firstLeftOfDealer = playersInHand.find((p) => p.seat > room.dealerSeat) ?? playersInHand[0];
-  return firstLeftOfDealer?.id ?? null;
-}
-
-function shouldSettleHand(room: RoomState): boolean {
-  const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator");
-  if (playersInHand.length <= 1) {
-    return true;
-  }
-
-  const playersWithChips = playersInHand.filter((p) => p.stack > 0);
-  if (playersWithChips.length === 0) {
-    return true;
-  }
-
+function currentActedPlayerIds(room: RoomState): Set<string> {
   const actionState = roomStreetActionState.get(room.id);
-  if (room.currentBet === 0) {
-    if (!actionState || actionState.street !== room.street) {
-      return false;
-    }
-
-    return playersWithChips.every((p) => actionState.actedPlayerIds.has(p.id));
+  if (!actionState || actionState.street !== room.street) {
+    return new Set<string>();
   }
 
-  const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
-  const hasPendingAction = playersInHand.some((p) => p.stack > 0 && p.commitment < highestCommitment);
-  return !hasPendingAction;
-}
-
-function countActionCapablePlayers(room: RoomState): number {
-  return room.players.filter((p) => p.inHand && p.role !== "spectator" && p.stack > 0).length;
+  return actionState.actedPlayerIds;
 }
 
 function resetStreetActionState(room: RoomState): void {
@@ -486,9 +410,18 @@ function settleHand(room: RoomState, winnerIds: string[], potWinnerIds?: string[
 
   room.payouts = calculatePayouts(room, winnerIds, potWinnerIds);
 
-  room.payoutState = room.payouts.length > 0 ? "pending_ack" : "idle";
-  room.payoutAnimationEndsAt = null;
-  room.payoutAcknowledgedByPlayerId = null;
+  // The host declaring winners is the only decision required — chips are paid
+  // out immediately (no separate player "acknowledge" gate). "animating" is
+  // purely a cosmetic window for the client-side chip animation.
+  for (const payout of room.payouts) {
+    const winner = room.players.find((p) => p.id === payout.playerId);
+    if (winner) {
+      winner.stack += payout.amount;
+    }
+  }
+
+  room.payoutState = room.payouts.length > 0 ? "animating" : "idle";
+  room.payoutAnimationEndsAt = room.payouts.length > 0 ? Date.now() + payoutAnimationDurationMs(room) : null;
 
   for (const player of room.players) {
     player.inHand = false;
@@ -595,7 +528,6 @@ function createRoom(input: CreateRoomInput, host: Player): RoomState {
     payouts: [],
     payoutState: "idle",
     payoutAnimationEndsAt: null,
-    payoutAcknowledgedByPlayerId: null,
     messages: [],
     blindVote: null,
     blindSchedule: createDefaultBlindSchedule(),
@@ -710,7 +642,7 @@ function markDisconnected(playerId: string): void {
 
   player.connected = false;
   if (room.actingPlayerId === playerId) {
-    room.actingPlayerId = findNextActingPlayer(room, playerId);
+    room.actingPlayerId = findNextActingPlayer(room, playerId, currentActedPlayerIds(room));
   }
 
   emitRoomState(roomId);
@@ -882,7 +814,6 @@ io.on("connection", (socket) => {
       room.payouts = [];
       room.payoutState = "idle";
       room.payoutAnimationEndsAt = null;
-      room.payoutAcknowledgedByPlayerId = null;
       room.currentBet = 0;
       resetStreetActionState(room);
 
@@ -1042,31 +973,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (event.type === "acknowledge_payout") {
-      const room = roomById.get(event.roomId);
-      if (!room) {
-        socket.emit("event", { type: "error", message: "Room not found." });
-        return;
-      }
-
-      const player = room.players.find((p) => p.id === event.actorPlayerId);
-      if (!player || player.role === "spectator") {
-        socket.emit("event", { type: "error", message: "Only players can acknowledge payout." });
-        return;
-      }
-
-      if (room.payoutState !== "pending_ack") {
-        socket.emit("event", { type: "error", message: "No payout waiting for acknowledgment." });
-        return;
-      }
-
-      room.payoutState = "animating";
-      room.payoutAcknowledgedByPlayerId = event.actorPlayerId;
-      room.payoutAnimationEndsAt = Date.now() + payoutAnimationDurationMs(room);
-      emitRoomState(room.id);
-      return;
-    }
-
     if (event.type === "request_double_blinds_vote") {
       const room = roomById.get(event.roomId);
       if (!room) {
@@ -1169,6 +1075,102 @@ io.on("connection", (socket) => {
       return;
     }
 
+    if (event.type === "remove_player") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      const permission = canRemovePlayer(room, event.actorPlayerId, event.targetPlayerId);
+      if (!permission.ok) {
+        socket.emit("event", { type: "error", message: permission.message ?? "Cannot remove player." });
+        return;
+      }
+
+      const target = room.players.find((p) => p.id === event.targetPlayerId)!;
+
+      if (room.status === "in_hand" && target.inHand) {
+        target.inHand = false;
+        appendAction(room, target.id, "fold");
+        markPlayerActedThisStreet(room, target.id);
+
+        const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator").sort((a, b) => a.seat - b.seat);
+        if (playersInHand.length === 1) {
+          settleHand(room, [playersInHand[0].id]);
+        } else if (shouldSettleHand(room, currentActedPlayerIds(room))) {
+          advanceStreetOrShowdown(room);
+        } else if (room.actingPlayerId === target.id) {
+          room.actingPlayerId = findNextActingPlayer(room, target.id, currentActedPlayerIds(room));
+        }
+      }
+
+      room.players = room.players.filter((p) => p.id !== target.id);
+      playerIdToRoomId.delete(target.id);
+
+      const targetSocketIds: string[] = [];
+      socketToPlayerId.forEach((mappedPlayerId, socketId) => {
+        if (mappedPlayerId === target.id) {
+          targetSocketIds.push(socketId);
+          socketToPlayerId.delete(socketId);
+        }
+      });
+      sessionToPlayerId.forEach((mappedPlayerId, sessionId) => {
+        if (mappedPlayerId === target.id) {
+          sessionToPlayerId.delete(sessionId);
+        }
+      });
+
+      for (const targetSocketId of targetSocketIds) {
+        const targetSocket = io.sockets.sockets.get(targetSocketId);
+        if (targetSocket) {
+          targetSocket.emit("event", { type: "error", message: "You have been removed from the room by the host." });
+          targetSocket.leave(room.id);
+        }
+      }
+
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "reorder_seats") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      const permission = canReorderSeats(room, event.actorPlayerId, event.orderedPlayerIds);
+      if (!permission.ok) {
+        socket.emit("event", { type: "error", message: permission.message ?? "Cannot reorder seats." });
+        return;
+      }
+
+      // Preserve which *player* currently holds the dealer/small-blind button
+      // across the reorder, since those fields are seat numbers, not player ids.
+      const dealerPlayerId = room.players.find((p) => p.seat === room.dealerSeat)?.id;
+      const smallBlindPlayerId = room.players.find((p) => p.seat === room.smallBlindSeat)?.id;
+
+      event.orderedPlayerIds.forEach((playerId, index) => {
+        const player = room.players.find((p) => p.id === playerId);
+        if (player) {
+          player.seat = index + 1;
+        }
+      });
+
+      const newDealerSeat = room.players.find((p) => p.id === dealerPlayerId)?.seat;
+      if (typeof newDealerSeat === "number") {
+        room.dealerSeat = newDealerSeat;
+      }
+      const newSmallBlindSeat = room.players.find((p) => p.id === smallBlindPlayerId)?.seat;
+      if (typeof newSmallBlindSeat === "number") {
+        room.smallBlindSeat = newSmallBlindSeat;
+      }
+
+      emitRoomState(room.id);
+      return;
+    }
+
     if (event.type === "send_message") {
       const room = roomById.get(event.roomId);
       if (!room) {
@@ -1262,10 +1264,10 @@ io.on("connection", (socket) => {
       const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator").sort((a, b) => a.seat - b.seat);
       if (playersInHand.length === 1) {
         settleHand(room, [playersInHand[0].id]);
-      } else if (shouldSettleHand(room)) {
+      } else if (shouldSettleHand(room, currentActedPlayerIds(room))) {
         advanceStreetOrShowdown(room);
       } else {
-        room.actingPlayerId = findNextActingPlayer(room, event.actorPlayerId);
+        room.actingPlayerId = findNextActingPlayer(room, event.actorPlayerId, currentActedPlayerIds(room));
       }
 
       emitRoomState(room.id);
