@@ -163,6 +163,14 @@ async function runScenario() {
     const joined = await waitForEvent(p2Socket, "joined_room");
     const p2Id = joined.playerId;
 
+    // Regression: joinRoom used to hand every joining player a hardcoded
+    // 1000 chips regardless of the room's configured startingStack (500
+    // here), so anyone but the host silently got the wrong buy-in.
+    const p2AtJoin = joined.room.players.find((player) => player.id === p2Id);
+    if (p2AtJoin?.stack !== 500) {
+      throw new Error(`Expected joining player to start with the room's configured stack (500), got ${p2AtJoin?.stack}`);
+    }
+
     const hostState = trackRoomState(hostSocket);
     const p2State = trackRoomState(p2Socket);
 
@@ -398,7 +406,7 @@ async function runSidePotScenario() {
         displayName: "Host",
         smallBlind: 10,
         bigBlind: 20,
-        startingStack: 120,
+        startingStack: 300,
       },
     });
 
@@ -434,10 +442,86 @@ async function runSidePotScenario() {
       return () => latest;
     })();
 
+    // Priming hand: with everyone now correctly starting with the SAME
+    // configured stack (see the joinRoom startingStack regression check
+    // above), a short stack has to be created through actual play rather
+    // than assumed from unequal buy-ins. Host and P2 build and resolve a
+    // big pot between just the two of them (P3 folds early, keeping their
+    // stack close to full) so host is left clearly short going into the
+    // real side-pot hand below, while both P2 and P3 still have plenty of
+    // room to keep betting on the flop.
     hostSocket.emit("event", { type: "start_hand", roomId, actorPlayerId: hostId });
     await wait(260);
 
     let state = getState();
+    if (!state) {
+      throw new Error("Missing initial state for priming hand");
+    }
+
+    for (let i = 0; i < 12 && state.street === "preflop"; i += 1) {
+      const actorId = state.actingPlayerId;
+      if (!actorId) {
+        throw new Error("No acting player during priming hand preflop");
+      }
+
+      const actor = state.players.find((player) => player.id === actorId);
+      let action = "check";
+      if (actorId === p3Id) {
+        action = actor.commitment < state.currentBet ? "fold" : "check";
+      } else if (state.currentBet < 250) {
+        action = "raise";
+      } else if (actor.commitment < state.currentBet) {
+        action = "call";
+      }
+
+      const socket = actorId === hostId ? hostSocket : actorId === p2Id ? p2Socket : p3Socket;
+      socket.emit("event", {
+        type: "submit_action",
+        roomId,
+        actorPlayerId: actorId,
+        action,
+        ...(action === "raise" ? { amount: 250 } : {}),
+      });
+      await wait(200);
+      state = getState();
+      if (!state) {
+        throw new Error("Missing state during priming hand preflop");
+      }
+    }
+
+    // Check both remaining players (host, P2) down through to showdown.
+    for (let i = 0; i < 12 && !(state.status === "paused" && state.street === "showdown"); i += 1) {
+      const actorId = state.actingPlayerId;
+      if (!actorId) break;
+      const socket = actorId === hostId ? hostSocket : p2Socket;
+      socket.emit("event", { type: "submit_action", roomId, actorPlayerId: actorId, action: "check" });
+      await wait(200);
+      state = getState();
+      if (!state) {
+        throw new Error("Missing state during priming hand check-down");
+      }
+    }
+
+    if (!(state.status === "paused" && state.street === "showdown")) {
+      throw new Error("Priming hand did not reach showdown");
+    }
+
+    hostSocket.emit("event", { type: "declare_winners", roomId, actorPlayerId: hostId, winnerIds: [p2Id] });
+    await wait(2500); // clear the (now-immediate) payout's cosmetic animation window
+
+    state = getState();
+    const hostAfterPriming = state.players.find((p) => p.id === hostId)?.stack;
+    const p2AfterPriming = state.players.find((p) => p.id === p2Id)?.stack;
+    const p3AfterPriming = state.players.find((p) => p.id === p3Id)?.stack;
+    if (!(hostAfterPriming < p2AfterPriming && hostAfterPriming < p3AfterPriming)) {
+      throw new Error(
+        `Priming hand did not leave host as the short stack: host=${hostAfterPriming}, p2=${p2AfterPriming}, p3=${p3AfterPriming}`
+      );
+    }
+
+    hostSocket.emit("event", { type: "start_hand", roomId, actorPlayerId: hostId });
+    await wait(260);
+    state = getState();
     if (!state) {
       throw new Error("Missing initial state for side-pot scenario");
     }
@@ -612,7 +696,7 @@ async function runContestedSidePotScenario() {
         displayName: "Host",
         smallBlind: 10,
         bigBlind: 20,
-        startingStack: 120,
+        startingStack: 300,
       },
     });
 
@@ -650,10 +734,81 @@ async function runContestedSidePotScenario() {
 
     const socketFor = (playerId) => (playerId === hostId ? hostSocket : playerId === p2Id ? p2Socket : p3Socket);
 
+    // Priming hand: with everyone starting with the same configured stack
+    // (see the joinRoom startingStack regression check in runSidePotScenario
+    // above), the short stack needed for this scenario has to come from
+    // actual play. Host and P2 build and resolve a big pot between just the
+    // two of them (P3 folds early, keeping their stack close to full) so
+    // host is clearly short going into the real hand below.
     hostSocket.emit("event", { type: "start_hand", roomId, actorPlayerId: hostId });
     await wait(260);
 
     let state = getState();
+    if (!state) {
+      throw new Error("Missing initial state for priming hand");
+    }
+
+    for (let i = 0; i < 12 && state.street === "preflop"; i += 1) {
+      const actorId = state.actingPlayerId;
+      if (!actorId) {
+        throw new Error("No acting player during priming hand preflop");
+      }
+
+      const actor = state.players.find((player) => player.id === actorId);
+      let action = "check";
+      if (actorId === p3Id) {
+        action = actor.commitment < state.currentBet ? "fold" : "check";
+      } else if (state.currentBet < 250) {
+        action = "raise";
+      } else if (actor.commitment < state.currentBet) {
+        action = "call";
+      }
+
+      socketFor(actorId).emit("event", {
+        type: "submit_action",
+        roomId,
+        actorPlayerId: actorId,
+        action,
+        ...(action === "raise" ? { amount: 250 } : {}),
+      });
+      await wait(200);
+      state = getState();
+      if (!state) {
+        throw new Error("Missing state during priming hand preflop");
+      }
+    }
+
+    for (let i = 0; i < 12 && !(state.status === "paused" && state.street === "showdown"); i += 1) {
+      const actorId = state.actingPlayerId;
+      if (!actorId) break;
+      socketFor(actorId).emit("event", { type: "submit_action", roomId, actorPlayerId: actorId, action: "check" });
+      await wait(200);
+      state = getState();
+      if (!state) {
+        throw new Error("Missing state during priming hand check-down");
+      }
+    }
+
+    if (!(state.status === "paused" && state.street === "showdown")) {
+      throw new Error("Priming hand did not reach showdown");
+    }
+
+    hostSocket.emit("event", { type: "declare_winners", roomId, actorPlayerId: hostId, winnerIds: [p2Id] });
+    await wait(2500); // clear the (now-immediate) payout's cosmetic animation window
+
+    state = getState();
+    const hostAfterPriming = state.players.find((p) => p.id === hostId)?.stack;
+    const p2AfterPriming = state.players.find((p) => p.id === p2Id)?.stack;
+    const p3AfterPriming = state.players.find((p) => p.id === p3Id)?.stack;
+    if (!(hostAfterPriming < p2AfterPriming && hostAfterPriming < p3AfterPriming)) {
+      throw new Error(
+        `Priming hand did not leave host as the short stack: host=${hostAfterPriming}, p2=${p2AfterPriming}, p3=${p3AfterPriming}`
+      );
+    }
+
+    hostSocket.emit("event", { type: "start_hand", roomId, actorPlayerId: hostId });
+    await wait(260);
+    state = getState();
     if (!state) {
       throw new Error("Missing initial state for contested side-pot scenario");
     }
