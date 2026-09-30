@@ -32,3 +32,6 @@ jobs:
 
       - name: Run admin controls integration tests
         run: npm run test:admin-controls
+
+      - name: Run session handling regression tests
+        run: npm run test:session-handling

@@ -234,6 +234,14 @@ export function countActionCapablePlayers(room: RoomState): number {
  * (wrapping around the table) among the players who still need to act, never
  * an arbitrary "lowest seat in the needing set" pick — that fallback is what
  * caused turns to visibly jump out of order / feel like they were skipped.
+ *
+ * A player still needs to act if their commitment hasn't caught up to the
+ * table's highest commitment yet, OR — this is the big blind's preflop
+ * option — if they simply haven't acted this street at all yet, even though
+ * their posted blind already happens to match the highest commitment. Without
+ * that second clause the big blind never gets a turn when everyone just
+ * calls: their commitment matches the moment the last caller catches up, so
+ * the street would end before the blind ever got to check or raise.
  */
 export function findNextActingPlayer(
   room: RoomState,
@@ -248,13 +256,10 @@ export function findNextActingPlayer(
     return null;
   }
 
-  let candidates: Player[];
-  if (room.currentBet === 0) {
-    candidates = playersInHand.filter((p) => p.stack > 0 && !actedPlayerIds.has(p.id));
-  } else {
-    const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
-    candidates = playersInHand.filter((p) => p.stack > 0 && p.commitment < highestCommitment);
-  }
+  const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
+  const candidates = playersInHand.filter(
+    (p) => p.stack > 0 && (p.commitment < highestCommitment || !actedPlayerIds.has(p.id))
+  );
 
   if (candidates.length === 0) {
     return null;
@@ -282,6 +287,13 @@ export function findFirstPostflopActingPlayer(room: RoomState): string | null {
   return firstLeftOfDealer?.id ?? null;
 }
 
+/**
+ * Mirrors findNextActingPlayer's notion of "still needs to act": a street is
+ * only done once every player with chips has both matched the highest
+ * commitment AND actually acted this street — the latter clause is what
+ * gives the big blind their preflop option instead of the street ending the
+ * instant the table's calls catch up to their posted blind.
+ */
 export function shouldSettleHand(room: RoomState, actedPlayerIds: ReadonlySet<string>): boolean {
   const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator");
   if (playersInHand.length <= 1) {
@@ -293,13 +305,8 @@ export function shouldSettleHand(room: RoomState, actedPlayerIds: ReadonlySet<st
     return true;
   }
 
-  if (room.currentBet === 0) {
-    return playersWithChips.every((p) => actedPlayerIds.has(p.id));
-  }
-
   const highestCommitment = playersInHand.reduce((max, p) => Math.max(max, p.commitment), 0);
-  const hasPendingAction = playersInHand.some((p) => p.stack > 0 && p.commitment < highestCommitment);
-  return !hasPendingAction;
+  return playersWithChips.every((p) => p.commitment === highestCommitment && actedPlayerIds.has(p.id));
 }
 
 export function canRemovePlayer(room: RoomState, actorPlayerId: string, targetPlayerId: string): ValidationResult {

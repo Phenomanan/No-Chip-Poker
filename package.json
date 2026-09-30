@@ -9,7 +9,8 @@
     "test:rules-engine": "npm run build:server && node scripts/test-rules-engine.mjs",
     "test:pot-regression": "npm run build:server && node scripts/test-pot-regression.mjs",
     "test:admin-controls": "npm run build:server && node scripts/test-admin-controls.mjs",
-    "test": "npm run build:server && node scripts/test-rules-engine.mjs && node scripts/test-pot-regression.mjs && node scripts/test-admin-controls.mjs"
+    "test:session-handling": "npm run build:server && node scripts/test-session-handling.mjs",
+    "test": "npm run build:server && node scripts/test-rules-engine.mjs && node scripts/test-pot-regression.mjs && node scripts/test-admin-controls.mjs && node scripts/test-session-handling.mjs"
   },
   "dependencies": {
     "@types/cors": "^2.8.17",

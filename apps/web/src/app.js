@@ -1924,7 +1924,7 @@ socket.on("connect", () => {
   }
 });
 
-socket.on("disconnect", () => {
+socket.on("disconnect", (reason) => {
   isSocketConnected = false;
   pendingMessagesList().forEach((pending) => {
     if (pending.status === "sending") {
@@ -1935,6 +1935,22 @@ socket.on("disconnect", () => {
   if (currentRoom) {
     renderChatMessages(currentRoom);
   }
+
+  // "io server disconnect" means the SERVER closed this socket on purpose —
+  // in this app that only happens when the same session was opened on
+  // another connection (another tab/device) and this one got evicted so
+  // only one socket is ever authoritative for a player. socket.io
+  // deliberately does NOT auto-reconnect after a server-initiated
+  // disconnect, so claiming "reconnecting automatically" here would be a
+  // lie — send the player back to the auth screen with an accurate reason
+  // instead of leaving a permanently-stuck "reconnecting" message up.
+  if (reason === "io server disconnect") {
+    clearSession(currentRoom?.code);
+    showAuthPanel();
+    setFeedback("This session was opened in another tab or window. Rejoin here if you need to.", true);
+    return;
+  }
+
   setFeedback(`Disconnected from ${activeServerLabel}. Reconnecting automatically...`, true);
 });
 
