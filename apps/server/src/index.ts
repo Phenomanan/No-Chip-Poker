@@ -165,6 +165,12 @@ function normalizeRoomState(room: RoomState): RoomState {
   // nothing left pending to resume).
   room.payoutState = room.payoutState === "animating" ? "animating" : "idle";
   room.payoutAnimationEndsAt = Number.isFinite(room.payoutAnimationEndsAt) ? Number(room.payoutAnimationEndsAt) : null;
+  // Older persisted rooms predate startingStack; fall back to the host's
+  // current stack as the closest available guess so joinRoom has something
+  // sane to hand new players.
+  if (!Number.isFinite(room.startingStack) || room.startingStack <= 0) {
+    room.startingStack = room.players.find((p) => p.id === room.hostPlayerId)?.stack || 1000;
+  }
   room.players.forEach((player) => {
     if (!Number.isFinite(player.totalContribution)) {
       player.totalContribution = Math.max(0, player.commitment ?? 0);
@@ -523,6 +529,7 @@ function createRoom(input: CreateRoomInput, host: Player): RoomState {
       smallBlind: input.smallBlind,
       bigBlind: input.bigBlind,
     },
+    startingStack: input.startingStack,
     players: [host],
     actionLog: [],
     payouts: [],
@@ -682,7 +689,7 @@ function joinRoom(socketId: string, payload: JoinRoomInput): { room: RoomState; 
     displayName: payload.displayName.trim(),
     role,
     seat: role === "spectator" ? 0 : nextSeat(room),
-    stack: role === "spectator" ? 0 : 1000,
+    stack: role === "spectator" ? 0 : room.startingStack,
     connected: true,
     joinedAt: Date.now(),
     inHand: false,

@@ -63,6 +63,7 @@ export interface RoomState {
   pots: Pot[];
   currentBet: number;
   blinds: BlindSettings;
+  startingStack: number;
   players: Player[];
   actionLog: ActionEvent[];
   payouts: Payout[];
