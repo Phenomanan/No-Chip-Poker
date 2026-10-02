@@ -35,3 +35,6 @@ jobs:
 
       - name: Run session handling regression tests
         run: npm run test:session-handling
+
+      - name: Run four-player soak test
+        run: npm run test:soak
