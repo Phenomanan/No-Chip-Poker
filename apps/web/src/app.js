@@ -759,11 +759,29 @@ function seatSlotPosition(index, total) {
 // Where a seat's chip stack sits: on the felt in front of the seat, toward the
 // pot. It follows the slot (the seat position in the order), never the pointer.
 function chipSlotPosition(index, total) {
-  const slot = seatSlotPosition(index, total);
+  // A ring between the pot medallion (center) and the seat ring, so a stack never
+  // sits under the pot or under its player's icon/name.
+  const angle = (-90 + index * (360 / total)) * (Math.PI / 180);
   return {
-    left: slot.left + (50 - slot.left) * 0.4,
-    top: slot.top + (50 - slot.top) * 0.4,
+    left: 50 + 27 * Math.cos(angle),
+    top: 50 + 29.5 * Math.sin(angle),
   };
+}
+
+// Tapping a chip stack pops up its number for a moment; tapping it again while
+// the number is showing opens the full chip breakdown.
+let stackPeekId = null;
+let stackPeekTimer = null;
+
+function setStackPeek(id) {
+  stackPeekId = id;
+  clearTimeout(stackPeekTimer);
+  if (id) {
+    stackPeekTimer = setTimeout(() => setStackPeek(null), 2800);
+  }
+  document.querySelectorAll(".seat-chips").forEach((el) => {
+    el.classList.toggle("show-amount", el.getAttribute("data-chips-for") === id);
+  });
 }
 
 function placeAt(el, pos) {
@@ -826,9 +844,25 @@ function renderTableTurnVisual(room) {
   const chipsFor = reconcileById(turnOrderTrackEl, ".seat-chips", "data-chips-for", ids, (id) => {
     const el = document.createElement("div");
     el.setAttribute("data-chips-for", id);
-    el.setAttribute("data-player-stack-id", id);
     el.setAttribute("role", "button");
     el.setAttribute("tabindex", "0");
+    el.addEventListener("click", () => {
+      if (stackPeekId !== id) {
+        setStackPeek(id);
+        return;
+      }
+      setStackPeek(null);
+      const player = currentRoom?.players.find((p) => p.id === id);
+      if (player) {
+        openChipDetailModal(`${player.displayName}'s Stack`, [{ title: "Player Stack", amount: player.stack }]);
+      }
+    });
+    el.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        el.click();
+      }
+    });
     return el;
   });
 
@@ -872,11 +906,11 @@ function renderTableTurnVisual(room) {
     }
 
     const chipsEl = chipsFor(player.id);
-    chipsEl.className = `seat-chips${isFolded ? " folded" : ""}${player.stack <= 0 ? " empty" : ""}`;
-    chipsEl.setAttribute("aria-label", `${player.displayName} stack ${player.stack}`);
+    chipsEl.className = `seat-chips${isFolded ? " folded" : ""}${player.stack <= 0 ? " empty" : ""}${player.id === stackPeekId ? " show-amount" : ""}`;
+    chipsEl.setAttribute("aria-label", `${player.displayName}'s chip stack: ${player.stack}. Tap to show the amount.`);
     chipsEl.innerHTML = `
       <span class="seat-chips-pile">${renderChipPile(player.stack)}</span>
-      <span class="seat-chips-amount">${player.stack > 0 ? player.stack : "0"}</span>
+      <span class="seat-chips-amount">${player.stack}</span>
     `;
     placeAt(chipsEl, chipSlotPosition(index, players.length));
   });

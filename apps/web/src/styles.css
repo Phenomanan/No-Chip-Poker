@@ -710,8 +710,8 @@ button.action.danger {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 112px;
-  height: 112px;
+  width: 104px;
+  height: 104px;
   min-width: 0;
   min-height: 0;
   padding: 0;
@@ -821,6 +821,7 @@ button.action.danger {
   align-items: center;
   gap: 2px;
   width: 64px;
+  padding: 6px 0;
   z-index: 1;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -845,21 +846,45 @@ button.action.danger {
   margin-bottom: -2px;
 }
 
+/* The amount is hidden until the stack is tapped, so it never clutters the table. */
 .seat-chips-amount {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  translate: -50% 4px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.74rem;
   font-weight: 700;
   line-height: 1;
-  color: color-mix(in srgb, var(--accent) 35%, var(--ink));
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  white-space: nowrap;
+  color: var(--accent);
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
   border-radius: 999px;
-  padding: 0.14rem 0.5rem;
+  padding: 0.28rem 0.6rem;
   font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  transition: opacity 0.15s ease, translate 0.15s ease;
 }
 
-.seat-chips.empty .seat-chips-amount {
-  color: var(--muted);
+.seat-chips.show-amount .seat-chips-amount {
+  opacity: 1;
+  translate: -50% 0;
+}
+
+.seat-chips.show-amount {
+  z-index: 6;
+}
+
+.chip-pile-empty {
+  width: 22px;
+  height: 12px;
+  margin-bottom: 4px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 50%;
 }
 
 .seat-chips.folded {
@@ -920,6 +945,17 @@ button.action.deal-confirm {
   gap: 3px;
   width: 76px;
   z-index: 2;
+}
+
+/* The seat box itself is click-through so it can never block a chip stack that
+   sits behind its corner; only the icon and name take pointer input. */
+.turn-seat {
+  pointer-events: none;
+}
+
+.turn-seat-avatar,
+.turn-seat-name {
+  pointer-events: auto;
 }
 
 .turn-seat-avatar {
