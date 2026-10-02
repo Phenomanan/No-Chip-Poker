@@ -631,6 +631,32 @@ function appendAction(room: RoomState, playerId: string, action: ActionEvent["ac
   }
 }
 
+/**
+ * A player should only ever have one live socket. Without this, a stale
+ * connection re-joining/re-attaching a player (e.g. a second browser tab, or
+ * the client's own auto-rejoin-on-reconnect firing from more than one place)
+ * would leave two sockets mapped to the same playerId — and the moment
+ * either one later disconnects, markDisconnected would flip the player to
+ * "offline" even though their other, genuinely live socket is still
+ * connected and playing fine. Evicting older sockets up front — removing
+ * their mapping before disconnecting them — means that disconnect becomes a
+ * no-op for connection status instead of clobbering the real one.
+ */
+function evictOtherSocketsForPlayer(playerId: string, keepSocketId: string): void {
+  const staleSocketIds: string[] = [];
+  socketToPlayerId.forEach((mappedPlayerId, socketId) => {
+    if (mappedPlayerId === playerId && socketId !== keepSocketId) {
+      staleSocketIds.push(socketId);
+    }
+  });
+
+  for (const staleSocketId of staleSocketIds) {
+    socketToPlayerId.delete(staleSocketId);
+    const staleSocket = io.sockets.sockets.get(staleSocketId);
+    staleSocket?.disconnect(true);
+  }
+}
+
 function markDisconnected(playerId: string): void {
   const roomId = playerIdToRoomId.get(playerId);
   if (!roomId) {
@@ -676,6 +702,7 @@ function joinRoom(socketId: string, payload: JoinRoomInput): { room: RoomState; 
     if (existingPlayerId) {
       const existingPlayer = room.players.find((p) => p.id === existingPlayerId);
       if (existingPlayer) {
+        evictOtherSocketsForPlayer(existingPlayer.id, socketId);
         existingPlayer.connected = true;
         socketToPlayerId.set(socketId, existingPlayer.id);
         return { room, player: existingPlayer, sessionId: requestedSession };
@@ -727,6 +754,7 @@ function rejoinRoom(socketId: string, payload: RejoinInput): { room: RoomState; 
     return { error: "Player is not part of this room." };
   }
 
+  evictOtherSocketsForPlayer(player.id, socketId);
   player.connected = true;
   socketToPlayerId.set(socketId, player.id);
   return { room, player };

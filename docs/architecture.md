@@ -38,6 +38,18 @@ mutates its in-memory copy, and broadcasts the new `RoomState` to everyone in th
 a server-authoritative `room_state` broadcast. This keeps every client, including one that
 just reconnected mid-hand, trivially consistent: render whatever the server last sent.
 
+## Betting round completion (turn order)
+
+`findNextActingPlayer` and `shouldSettleHand` (both in `rules-engine`) share one rule for
+"has this street's betting finished": every player still in the hand with chips must both
+match the table's highest commitment for the street *and* have actually acted this street.
+The second clause matters specifically for the big blind (and, heads-up, the small blind
+acting as dealer): their posted blind can already equal the highest commitment before
+they've ever chosen an action, so without tracking "has acted" separately, the street would
+end the instant everyone else's calls caught up to the blind — skipping the blind's own
+option to check or raise. `roomStreetActionState` (server-side, persisted) is what tracks
+"acted this street" per player; it resets on every street transition.
+
 ## Pot/payout model
 
 `calculatePots` walks each player's total contribution for the hand (`totalContribution`,

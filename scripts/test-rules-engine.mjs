@@ -204,7 +204,9 @@ function makeRoom(overrides) {
     ],
   });
 
-  const next = findNextActingPlayer(room, "seat3", new Set());
+  // seat3 (the raiser) has acted; the others haven't, and matter regardless
+  // of the acted-set since their commitment is still behind the raise.
+  const next = findNextActingPlayer(room, "seat3", new Set(["seat3"]));
   check(
     "findNextActingPlayer: acts on the next seat clockwise from the raiser, not the lowest pending seat",
     next === "seat4",
@@ -225,8 +227,39 @@ function makeRoom(overrides) {
     ],
   });
 
-  const next = findNextActingPlayer(room, "seat4", new Set());
+  const next = findNextActingPlayer(room, "seat4", new Set(["seat3", "seat4"]));
   check("findNextActingPlayer: wraps around the table in seat order", next === "seat1", `expected seat1, got ${next}`);
+})();
+
+// Regression: the big blind's posted commitment can already equal the
+// table's highest commitment without them ever having acted this street —
+// they must still get their option to check or raise before the street ends.
+(function testFindNextActingPlayerGivesBigBlindTheOption() {
+  const room = makeRoom({
+    currentBet: 20,
+    players: [
+      makePlayer({ id: "utg", seat: 1, stack: 500, commitment: 20 }),
+      makePlayer({ id: "sb", seat: 2, stack: 500, commitment: 20 }),
+      makePlayer({ id: "bb", seat: 3, stack: 500, commitment: 20 }),
+    ],
+  });
+
+  // UTG and SB have both called up to the big blind's amount and acted; the
+  // big blind itself has not acted yet, so it must still be their turn.
+  const next = findNextActingPlayer(room, "sb", new Set(["utg", "sb"]));
+  check(
+    "findNextActingPlayer: gives the big blind their option when everyone just calls",
+    next === "bb",
+    `expected bb, got ${next}`
+  );
+
+  // Once the big blind has also acted (checked), the street is done.
+  const afterBbActs = findNextActingPlayer(room, "bb", new Set(["utg", "sb", "bb"]));
+  check(
+    "findNextActingPlayer: returns null once the big blind has taken their option",
+    afterBbActs === null,
+    `expected null, got ${afterBbActs}`
+  );
 })();
 
 (function testFindNextActingPlayerChecksAroundOnCurrentBetZero() {
@@ -267,7 +300,18 @@ function makeRoom(overrides) {
       makePlayer({ id: "p2", seat: 2, stack: 500, commitment: 100 }),
     ],
   });
-  check("shouldSettleHand: true once every live player has matched the bet", shouldSettleHand(matchedRoom, new Set()) === true);
+  check(
+    "shouldSettleHand: true once every live player has matched the bet AND acted",
+    shouldSettleHand(matchedRoom, new Set(["p1", "p2"])) === true
+  );
+
+  // Regression: the big blind's posted commitment can already equal the
+  // table's highest commitment (nobody raised) without the blind ever having
+  // acted this street — the street must NOT end until they get their option.
+  check(
+    "shouldSettleHand: false when a matched player (e.g. the big blind) hasn't acted yet",
+    shouldSettleHand(matchedRoom, new Set(["p1"])) === false
+  );
 
   const checkedAroundRoom = makeRoom({
     currentBet: 0,
