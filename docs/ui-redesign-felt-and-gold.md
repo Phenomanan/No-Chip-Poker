@@ -74,6 +74,9 @@ re-themed most components without per-rule edits.
   pile + stack amount) placed 40% of the way from the seat toward the pot. Tap to see that
   player's denomination breakdown. Seat and chip elements persist between renders, keyed by
   player id, so they animate between slots.
+- **Chip art**: `CHIP_STYLES`/`chipTowerSvg` in `app.js` draw casino chips (white 1, red 5,
+  green 25, black 100, purple 500) with rim edge-spots, a brass inlay ring, and a soft shadow,
+  in muted tones that sit on the felt. The same palette is used in the breakdown modal.
 - **Dragging**: only the player's icon and name follow the pointer. Chip stacks stay in their
   slots and slide to the new ones once the server confirms the new order.
 

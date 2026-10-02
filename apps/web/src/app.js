@@ -592,50 +592,59 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+// Classic casino colors (white / red / green / black / purple), tuned to sit on
+// the felt-and-gold table: slightly muted bodies, ivory edge spots, brass inlay.
 const CHIP_STYLES = {
-  500: { bg: '#7c3aed', rim: '#3b0764', stripe: 'rgba(221,214,254,0.75)', text: '#ede9fe' },
-  100: { bg: '#dc2626', rim: '#7f1d1d', stripe: 'rgba(254,202,202,0.75)', text: '#fee2e2' },
-  25:  { bg: '#2563eb', rim: '#1e3a8a', stripe: 'rgba(147,197,253,0.75)', text: '#dbeafe' },
-  5:   { bg: '#16a34a', rim: '#14532d', stripe: 'rgba(134,239,172,0.75)', text: '#dcfce7' },
-  1:   { bg: '#d97706', rim: '#78350f', stripe: 'rgba(253,230,138,0.75)', text: '#fef3c7' },
+  500: { bg: '#6a4a9e', rim: '#2f1c55', stripe: '#eadfff', text: '#f3ecff', center: 'rgba(20,8,48,0.45)' },
+  100: { bg: '#2a2d33', rim: '#0c0e11', stripe: '#d9b95c', text: '#f1dd9a', center: 'rgba(0,0,0,0.45)' },
+  25:  { bg: '#1f8260', rim: '#0b3f2d', stripe: '#e9f7ef', text: '#e9f7ef', center: 'rgba(0,30,18,0.4)' },
+  5:   { bg: '#b8344a', rim: '#5a1220', stripe: '#fde6e8', text: '#fde6e8', center: 'rgba(50,0,10,0.38)' },
+  1:   { bg: '#efe8d4', rim: '#9b8f72', stripe: '#8c6c2c', text: '#4a3a16', center: 'rgba(120,96,40,0.18)' },
 };
+const CHIP_GOLD = '#d8b45a';
 
 function chipFaceSvg(denom) {
   const s = CHIP_STYLES[denom] || CHIP_STYLES[1];
   const label = String(denom);
   const fs = label.length >= 3 ? '5.8' : '7';
-  return `<svg class="chip-face-svg" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13.5" fill="${s.rim}"/><circle cx="14" cy="14" r="12.5" fill="${s.bg}"/><circle cx="14" cy="14" r="12.5" fill="none" stroke="${s.stripe}" stroke-width="4.5" stroke-dasharray="3.1 6.74" stroke-dashoffset="1.55"/><circle cx="14" cy="14" r="8.2" fill="none" stroke="${s.stripe}" stroke-width="0.7"/><circle cx="14" cy="14" r="5.8" fill="rgba(0,0,0,0.28)"/><ellipse cx="14" cy="10" rx="5" ry="2.5" fill="rgba(255,255,255,0.1)"/><text x="14" y="17.8" text-anchor="middle" fill="${s.text}" font-size="${fs}" font-weight="800" font-family="IBM Plex Mono,ui-monospace,monospace">${label}</text></svg>`;
+  return `<svg class="chip-face-svg" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13.5" fill="${s.rim}"/><circle cx="14" cy="14" r="12.5" fill="${s.bg}"/><circle cx="14" cy="14" r="12.5" fill="none" stroke="${s.stripe}" stroke-width="4.5" stroke-dasharray="3.1 6.74" stroke-dashoffset="1.55"/><circle cx="14" cy="14" r="8.4" fill="none" stroke="${CHIP_GOLD}" stroke-width="0.8"/><circle cx="14" cy="14" r="6.2" fill="${s.center}"/><ellipse cx="14" cy="9.5" rx="6" ry="2.4" fill="rgba(255,255,255,0.14)"/><text x="14" y="17.2" text-anchor="middle" fill="${s.text}" font-size="${fs}" font-weight="800" font-family="IBM Plex Mono,ui-monospace,monospace">${label}</text></svg>`;
 }
 
+// A short stack of casino chips seen from slightly above: every chip has a
+// visible rim with edge spots, the top chip shows its face with a brass inlay.
 function chipTowerSvg(denom, count) {
   const s = CHIP_STYLES[denom] || CHIP_STYLES[1];
   const visible = Math.max(1, Math.min(count, 6));
-  const w = 22;
+  const w = 28;
   const cx = w / 2;
-  const rx = cx - 1;
-  const ry = 3.3;
-  const overlap = ry * 1.1;
-  const baseH = ry * 2 + (visible - 1) * overlap + 1;
+  const rx = 12.5;
+  const ry = 4.8;
+  const thick = 3.4;
+  const pitch = thick + 0.5;
   const overflow = count > 6 ? count - 6 : 0;
-  const svgH = (baseH + (overflow > 0 ? 11 : 0)).toFixed(1);
+  const bodyH = ry * 2 + thick + (visible - 1) * pitch + 3;
+  const svgH = bodyH + (overflow > 0 ? 10 : 0);
+  const baseCy = bodyH - ry - thick - 1.5;
 
-  // Every chip gets the same dashed-rim ring used by the round chip-face icon
-  // (chipFaceSvg) so a stack of overlapping discs reads unmistakably as "chips",
-  // not a generic striped bar.
-  let discs = '';
-  for (let i = 0; i < visible; i++) {
-    const cy = baseH - 1 - ry - i * overlap;
-    discs += `<ellipse cx="${cx}" cy="${cy.toFixed(1)}" rx="${rx}" ry="${ry}" fill="${s.bg}" stroke="${s.rim}" stroke-width="0.9"/>`;
-    discs += `<ellipse cx="${cx}" cy="${cy.toFixed(1)}" rx="${rx}" ry="${ry}" fill="none" stroke="${s.stripe}" stroke-width="1" stroke-dasharray="1.4 2.2"/>`;
+  let g = `<ellipse cx="${cx}" cy="${(baseCy + thick + 1).toFixed(1)}" rx="${rx + 1}" ry="${ry}" fill="rgba(0,0,0,0.35)"/>`;
+  for (let i = 0; i < visible; i += 1) {
+    const cy = baseCy - i * pitch;
+    const bottom = cy + thick;
+    const sideY = cy + thick / 2;
+    g += `<path d="M${cx - rx} ${cy.toFixed(2)}V${bottom.toFixed(2)}A${rx} ${ry} 0 0 0 ${cx + rx} ${bottom.toFixed(2)}V${cy.toFixed(2)}Z" fill="${s.rim}"/>`;
+    g += `<path d="M${cx - rx} ${sideY.toFixed(2)}A${rx} ${ry} 0 0 0 ${cx + rx} ${sideY.toFixed(2)}" fill="none" stroke="${s.stripe}" stroke-width="${(thick * 0.85).toFixed(2)}" stroke-dasharray="2.6 3.4"/>`;
+    g += `<ellipse cx="${cx}" cy="${cy.toFixed(2)}" rx="${rx}" ry="${ry}" fill="${s.bg}" stroke="${s.rim}" stroke-width="0.7"/>`;
   }
-  const topCy = baseH - 1 - ry - (visible - 1) * overlap;
-  discs += `<ellipse cx="${(cx - rx * 0.28).toFixed(1)}" cy="${(topCy - ry * 0.3).toFixed(1)}" rx="${(rx * 0.3).toFixed(1)}" ry="${(ry * 0.28).toFixed(1)}" fill="rgba(255,255,255,0.32)"/>`;
+  const topCy = baseCy - (visible - 1) * pitch;
+  g += `<ellipse cx="${cx}" cy="${topCy.toFixed(2)}" rx="${rx - 0.9}" ry="${ry - 0.4}" fill="none" stroke="${s.stripe}" stroke-width="1.8" stroke-dasharray="3 3.6" opacity="0.9"/>`;
+  g += `<ellipse cx="${cx}" cy="${topCy.toFixed(2)}" rx="${(rx * 0.64).toFixed(1)}" ry="${(ry * 0.64).toFixed(1)}" fill="${s.center}" stroke="${CHIP_GOLD}" stroke-width="0.8"/>`;
+  g += `<ellipse cx="${(cx - rx * 0.3).toFixed(1)}" cy="${(topCy - ry * 0.35).toFixed(1)}" rx="${(rx * 0.32).toFixed(1)}" ry="${(ry * 0.22).toFixed(1)}" fill="rgba(255,255,255,0.28)"/>`;
 
   const overflowText = overflow > 0
-    ? `<text x="${cx.toFixed(1)}" y="${(baseH + 9).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="7.5" font-weight="700" font-family="IBM Plex Mono,ui-monospace,monospace">+${overflow}</text>`
+    ? `<text x="${cx}" y="${(bodyH + 8).toFixed(1)}" text-anchor="middle" fill="${CHIP_GOLD}" font-size="7.5" font-weight="700" font-family="IBM Plex Mono,ui-monospace,monospace">+${overflow}</text>`
     : '';
 
-  return `<svg class="chip-tower-svg" width="${w}" height="${svgH}" viewBox="0 0 ${w} ${svgH}" aria-hidden="true">${discs}${overflowText}</svg>`;
+  return `<svg class="chip-tower-svg" width="${w}" height="${svgH.toFixed(1)}" viewBox="0 0 ${w} ${svgH.toFixed(1)}" aria-hidden="true">${g}${overflowText}</svg>`;
 }
 
 function getChipBreakdown(amount) {
