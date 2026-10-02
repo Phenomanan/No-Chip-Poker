@@ -435,6 +435,9 @@ function settleHand(room: RoomState, winnerIds: string[], potWinnerIds?: string[
     player.totalContribution = 0;
   }
 
+  // Players removed mid-hand were only kept so their chips stayed in the pot.
+  room.players = room.players.filter((player) => !player.pendingRemoval);
+
   room.status = "waiting";
   room.street = "resolved";
   room.actingPlayerId = null;
@@ -864,8 +867,10 @@ io.on("connection", (socket) => {
 
       if (players.length >= 2) {
         // Rotate dealer button to next active player
-        const currentDealerIndex = players.findIndex((p) => p.seat === room.dealerSeat);
-        const nextDealerIndex = (currentDealerIndex + 1) % players.length;
+        // First occupied seat clockwise of the old button. Using the seat number (not
+        // the old dealer's index) keeps rotation correct when that player was removed.
+        const firstSeatAfterDealer = players.findIndex((p) => p.seat > room.dealerSeat);
+        const nextDealerIndex = firstSeatAfterDealer >= 0 ? firstSeatAfterDealer : 0;
         room.dealerSeat = players[nextDealerIndex].seat;
 
         // Heads-up: dealer is small blind
@@ -884,24 +889,41 @@ io.on("connection", (socket) => {
         const sb = players[sbIndex];
         const bb = players[bbIndex];
 
-        sb.commitment = room.blinds.smallBlind;
-        sb.totalContribution = room.blinds.smallBlind;
-        sb.stack -= room.blinds.smallBlind;
-        bb.commitment = room.blinds.bigBlind;
-        bb.totalContribution = room.blinds.bigBlind;
-        bb.stack -= room.blinds.bigBlind;
+        // A player who can't cover a blind posts what they have and is all-in for it.
+        const sbAmount = Math.min(sb.stack, room.blinds.smallBlind);
+        const bbAmount = Math.min(bb.stack, room.blinds.bigBlind);
+        sb.commitment = sbAmount;
+        sb.totalContribution = sbAmount;
+        sb.stack -= sbAmount;
+        bb.commitment = bbAmount;
+        bb.totalContribution = bbAmount;
+        bb.stack -= bbAmount;
         room.currentBet = room.blinds.bigBlind;
         room.pots.push({
-          amount: room.blinds.smallBlind + room.blinds.bigBlind,
+          amount: sbAmount + bbAmount,
           contributors: [sb.id, bb.id],
         });
 
-        // First to act: after big blind (heads-up: SB acts first preflop)
+        // First to act: after big blind (heads-up: SB acts first preflop), skipping
+        // anyone already all-in from posting a blind.
         const firstToActIndex = isHeadsUp ? sbIndex : (bbIndex + 1) % players.length;
-        room.actingPlayerId = players[firstToActIndex].id;
+        let actingIndex = -1;
+        for (let offset = 0; offset < players.length; offset += 1) {
+          const candidate = players[(firstToActIndex + offset) % players.length];
+          if (candidate.stack > 0) {
+            actingIndex = (firstToActIndex + offset) % players.length;
+            break;
+          }
+        }
+
+        if (actingIndex >= 0 && countActionCapablePlayers(room) > 1) {
+          room.actingPlayerId = players[actingIndex].id;
+        } else {
+          // Nobody (or only one player) can bet: the blinds were everyone's whole stack.
+          advanceStreetOrShowdown(room);
+        }
       }
 
-      appendAction(room, event.actorPlayerId, "check");
       if (room.blindVote?.status === "open") {
         room.blindVote = null;
       }
@@ -1100,7 +1122,7 @@ io.on("connection", (socket) => {
       }
 
       const newHost = room.players.find(p => p.id === event.newHostPlayerId);
-      if (!newHost) {
+      if (!newHost || newHost.pendingRemoval) {
         socket.emit("event", { type: "error", message: "Player not found." });
         return;
       }
@@ -1124,23 +1146,49 @@ io.on("connection", (socket) => {
       }
 
       const target = room.players.find((p) => p.id === event.targetPlayerId)!;
+      const handInProgress = room.status === "in_hand" || room.status === "paused";
 
-      if (room.status === "in_hand" && target.inHand) {
+      // Chips the player already has in the pot stay there as dead money; only
+      // their remaining stack leaves the table. Keep them in the roster, hidden,
+      // until the hand settles so the pot math still sees their contribution.
+      if (handInProgress && target.totalContribution > 0) {
+        target.pendingRemoval = true;
+        target.stack = 0;
+      }
+
+      if (handInProgress) {
+        if (target.inHand) {
+          appendAction(room, target.id, "fold");
+        }
         target.inHand = false;
-        appendAction(room, target.id, "fold");
-        markPlayerActedThisStreet(room, target.id);
+
+        if (room.status === "in_hand") {
+          markPlayerActedThisStreet(room, target.id);
+          // Their bet is no longer a live bet that others have to call.
+          room.currentBet = room.players
+            .filter((p) => p.inHand && p.role !== "spectator")
+            .reduce((max, p) => Math.max(max, p.commitment), 0);
+        }
 
         const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator").sort((a, b) => a.seat - b.seat);
         if (playersInHand.length === 1) {
           settleHand(room, [playersInHand[0].id]);
-        } else if (shouldSettleHand(room, currentActedPlayerIds(room))) {
-          advanceStreetOrShowdown(room);
-        } else if (room.actingPlayerId === target.id) {
-          room.actingPlayerId = findNextActingPlayer(room, target.id, currentActedPlayerIds(room));
+        } else if (room.status === "in_hand") {
+          if (shouldSettleHand(room, currentActedPlayerIds(room))) {
+            advanceStreetOrShowdown(room);
+          } else if (room.actingPlayerId === target.id) {
+            room.actingPlayerId = findNextActingPlayer(room, target.id, currentActedPlayerIds(room));
+          }
+        }
+
+        if (room.status === "in_hand" || room.status === "paused") {
+          room.pots = calculatePots(room);
         }
       }
 
-      room.players = room.players.filter((p) => p.id !== target.id);
+      if (!target.pendingRemoval) {
+        room.players = room.players.filter((p) => p.id !== target.id);
+      }
       playerIdToRoomId.delete(target.id);
 
       const targetSocketIds: string[] = [];

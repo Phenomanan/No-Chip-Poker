@@ -163,6 +163,26 @@ function makeRoom(overrides) {
   check("calculatePots: total pot amount conserves all contributed chips", total === 550, `expected 550, got ${total}`);
 })();
 
+// A player the host removes mid-hand can have out-bet everyone still in. Their
+// extra chips must stay in the pot (top pot) instead of disappearing.
+(function testCalculatePotsKeepsRemovedPlayersExcess() {
+  const room = makeRoom({
+    players: [
+      makePlayer({ id: "removed", seat: 1, stack: 0, commitment: 300, totalContribution: 300, inHand: false }),
+      makePlayer({ id: "a", seat: 2, stack: 100, commitment: 100 }),
+      makePlayer({ id: "b", seat: 3, stack: 100, commitment: 100 }),
+    ],
+  });
+  const pots = calculatePots(room);
+  const total = pots.reduce((sum, pot) => sum + pot.amount, 0);
+  check("calculatePots: chips a removed player put in beyond the live stakes are not dropped", total === 500, `expected 500, got ${total}`);
+  check(
+    "calculatePots: the removed player can't win anything",
+    pots.every((pot) => !pot.contributors.includes("removed")),
+    JSON.stringify(pots)
+  );
+})();
+
 // --- calculatePayouts ----------------------------------------------------
 
 (function testCalculatePayoutsRemainderDistribution() {
@@ -402,6 +422,19 @@ function makeRoom(overrides) {
   check(
     "canReorderSeats: locked while a hand is in progress",
     canReorderSeats(inHandRoom, "host", ["p2", "host"]).ok === false
+  );
+
+  const showdownRoom = makeRoom({
+    status: "paused",
+    street: "showdown",
+    players: [
+      makePlayer({ id: "host", seat: 1, stack: 500 }),
+      makePlayer({ id: "p2", seat: 2, stack: 500 }),
+    ],
+  });
+  check(
+    "canReorderSeats: locked while a showdown is waiting for the host to pick winners",
+    canReorderSeats(showdownRoom, "host", ["p2", "host"]).ok === false
   );
 })();
 

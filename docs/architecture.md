@@ -1,8 +1,9 @@
 # Architecture
 
-Status as of 2026-08-01. This describes the app as it currently exists, not an initial
+Status as of 2026-10-02. This describes the app as it currently exists, not an initial
 implementation plan — see `README.md` for the full feature list and `docs/ux-ui-improvement-plan.md`
-for in-progress frontend work.
+for earlier frontend work and `docs/ui-redesign-felt-and-gold.md` for the current visual
+redesign.
 
 ## Shape of the system
 
@@ -99,6 +100,24 @@ There's no auth. A player's identity is a `playerId` tied to a `sessionId` store
 player's live socket, so state (stack, cards-in-hand status, chat history) survives a
 refresh or a dropped connection without any credential.
 
+The client resumes automatically: on every socket `connect` (a fresh page load, or the
+socket.io client's own reconnect after a network blip) it sends `rejoin_room` with the saved
+session, so players never need to press "Rejoin Last Session". A "Leave Room" button clears
+the saved session and forces a fresh connection.
+
+A player has exactly one authoritative socket. `joinRoom`/`rejoinRoom` call
+`evictOtherSocketsForPlayer`, which removes any other socket's `socketToPlayerId` entry
+*before* disconnecting it, so the stale socket's later `disconnect` event is a no-op instead
+of flipping a still-connected player to `connected: false` (which hides their action buttons
+on their own turn). The evicted client gets `io server disconnect`, which socket.io never
+auto-reconnects from, so the frontend sends it back to the auth screen with an explanation.
+Consequence for manual testing: two tabs of one browser profile share `localStorage`, so the
+second tab auto-rejoins as the first tab's player and evicts it. Use separate profiles or
+devices to simulate separate players.
+
+Each room stores `startingStack` (from `create_room`); joining players get that stack, not
+a fixed amount.
+
 ## What's intentionally out of scope
 
 There is no card or hand-strength modeling anywhere in `shared-types` — players hold and
@@ -117,12 +136,22 @@ engine — see the note in `README.md`'s feature list.
 
 ## Testing
 
-`npm test` runs all three suites: `scripts/test-rules-engine.mjs` (pure, synchronous unit
-tests against the compiled `rules-engine` module — no server, no sockets; this is where
-pot-splitting, turn-order, and admin-permission edge cases are pinned down) plus the two
-integration suites (`scripts/test-pot-regression.mjs`, `scripts/test-admin-controls.mjs`),
-which spawn a real server on an isolated port and drive it over real `socket.io-client`
-connections the same way the frontend would. `findNextActingPlayer`/`shouldSettleHand`
-(the turn-order/street-advancement decision logic) live in `rules-engine` specifically so
-they're covered by the fast unit layer rather than only reachable through a full hand
-played out over sockets.
+`npm test` runs five suites: `scripts/test-rules-engine.mjs` (pure, synchronous unit tests
+against the compiled `rules-engine` module — no server, no sockets; pot-splitting, turn-order,
+big-blind-option, and admin-permission edge cases) plus four integration suites that spawn a
+real server on an isolated port and drive it over real `socket.io-client` connections the way
+the frontend does: `test-pot-regression.mjs`, `test-admin-controls.mjs`,
+`test-session-handling.mjs` (stale-socket eviction), and `test-four-player-soak.mjs`. The soak
+test plays five hands with four players (check-down, a multi-raise hand whose turn order is
+cross-checked against an independent reference model, a fold-out, a short-stack all-in with a
+fold, and a mid-session seat reorder) and asserts chips are conserved after every action.
+`findNextActingPlayer`/`shouldSettleHand` (the turn-order/street-advancement logic) live in
+`rules-engine` so they're covered by the fast unit layer rather than only reachable through a
+full hand played out over sockets.
+
+Betting rounds follow one rule: a street ends only when every player with chips has matched
+the highest commitment *and* acted this street. The second clause gives the big blind their
+preflop option. Tests that need a short stack must create it through play (a priming hand),
+because every player now starts with the same configured stack.
+
+The frontend has no automated tests; UI changes are verified by hand in a browser.

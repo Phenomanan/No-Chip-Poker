@@ -151,6 +151,14 @@ export function calculatePots(room: RoomState): Pot[] {
     previousLevel = level;
   }
 
+  // Normal folds never put in more than the largest live stake, but a player the
+  // host removes mid-hand can (they may have out-bet everyone still in). That
+  // excess is dead money: it goes into the top pot instead of vanishing.
+  const excess = contributors.reduce((sum, p) => sum + Math.max(0, playerContribution(p) - previousLevel), 0);
+  if (excess > 0 && pots.length > 0) {
+    pots[pots.length - 1].amount += excess;
+  }
+
   return pots;
 }
 
@@ -335,7 +343,9 @@ export function canReorderSeats(room: RoomState, actorPlayerId: string, orderedP
     return { ok: false, message: "Only the host can set table order." };
   }
 
-  if (room.status === "in_hand") {
+  // "Between hands" means fully resolved: not while betting is under way, and not
+  // while a showdown is still waiting for the host to pick winners.
+  if (room.status !== "waiting") {
     return { ok: false, message: "Table order can only be changed between hands." };
   }
 

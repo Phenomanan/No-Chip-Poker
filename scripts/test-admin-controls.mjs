@@ -186,7 +186,9 @@ async function testRemovePlayerMidHand() {
     state = getState();
     if (!state) throw new Error("Missing state after remove_player");
 
-    if (state.players.some((p) => p.id === p3Id)) {
+    // Mid-hand the removed player may linger flagged pendingRemoval (so their chips stay
+    // in the pot as dead money) but must be hidden from every client.
+    if (state.players.some((p) => p.id === p3Id && !p.pendingRemoval)) {
       throw new Error("Removed player is still listed in the room");
     }
 
@@ -205,6 +207,14 @@ async function testRemovePlayerMidHand() {
 
     if (state.status === "in_hand") {
       throw new Error("Hand never resolved after removing a mid-hand player");
+    }
+    if (state.status === "paused") {
+      hostSocket.emit("event", { type: "declare_winners", roomId, actorPlayerId: hostId, winnerIds: [hostId] });
+      await wait(300);
+      state = getState();
+    }
+    if (state.players.some((p) => p.id === p3Id)) {
+      throw new Error("Removed player still in the roster after the hand settled");
     }
 
     // The removed player's session is dead: rejoin must fail cleanly.
