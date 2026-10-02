@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./src/styles.css" />
@@ -164,18 +164,17 @@
         </div>
 
         <div class="table-center-wrap">
-          <button id="pot-visual-button" class="pot-visual-button" aria-label="Show pot breakdown">
-            <div class="pot-visual-head">
-              <span id="pot-title-label">Table Pot</span>
-              <strong id="pot">0</strong>
-            </div>
-            <div id="pot-visual-stacks" class="pot-visual-stacks"></div>
-          </button>
-          <section class="table-turn-visual" aria-label="Table flow visual">
-            <h4>Table Flow</h4>
-            <div id="turn-order-track" class="turn-order-track"></div>
-            <div id="turn-state-legend" class="turn-state-legend"></div>
-          </section>
+          <div class="table-oval" id="table-oval">
+            <button id="pot-visual-button" class="pot-visual-button" aria-label="Show pot breakdown">
+              <div class="pot-visual-head">
+                <span id="pot-title-label">Table Pot</span>
+                <strong id="pot">0</strong>
+              </div>
+              <div id="pot-visual-stacks" class="pot-visual-stacks"></div>
+            </button>
+            <div id="turn-order-track" class="turn-order-track" aria-label="Table seats"></div>
+          </div>
+          <div id="turn-state-legend" class="turn-state-legend"></div>
         </div>
 
         <div class="room-grid">

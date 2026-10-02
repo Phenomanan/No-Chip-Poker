@@ -113,7 +113,7 @@ const HAND_RANKINGS = [
 ];
 
 function setFeedback(message, isError) {
-  feedback.style.color = isError ? "#7f1d1d" : "#14532d";
+  feedback.style.color = isError ? "var(--danger)" : "var(--safe-ink)";
   feedback.textContent = message;
 }
 
@@ -550,7 +550,7 @@ function chipFaceSvg(denom) {
   const s = CHIP_STYLES[denom] || CHIP_STYLES[1];
   const label = String(denom);
   const fs = label.length >= 3 ? '5.8' : '7';
-  return `<svg class="chip-face-svg" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13.5" fill="${s.rim}"/><circle cx="14" cy="14" r="12.5" fill="${s.bg}"/><circle cx="14" cy="14" r="12.5" fill="none" stroke="${s.stripe}" stroke-width="4.5" stroke-dasharray="3.1 6.74" stroke-dashoffset="1.55"/><circle cx="14" cy="14" r="8.2" fill="none" stroke="${s.stripe}" stroke-width="0.7"/><circle cx="14" cy="14" r="5.8" fill="rgba(0,0,0,0.28)"/><ellipse cx="14" cy="10" rx="5" ry="2.5" fill="rgba(255,255,255,0.1)"/><text x="14" y="17.8" text-anchor="middle" fill="${s.text}" font-size="${fs}" font-weight="800" font-family="Space Grotesk,sans-serif">${label}</text></svg>`;
+  return `<svg class="chip-face-svg" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13.5" fill="${s.rim}"/><circle cx="14" cy="14" r="12.5" fill="${s.bg}"/><circle cx="14" cy="14" r="12.5" fill="none" stroke="${s.stripe}" stroke-width="4.5" stroke-dasharray="3.1 6.74" stroke-dashoffset="1.55"/><circle cx="14" cy="14" r="8.2" fill="none" stroke="${s.stripe}" stroke-width="0.7"/><circle cx="14" cy="14" r="5.8" fill="rgba(0,0,0,0.28)"/><ellipse cx="14" cy="10" rx="5" ry="2.5" fill="rgba(255,255,255,0.1)"/><text x="14" y="17.8" text-anchor="middle" fill="${s.text}" font-size="${fs}" font-weight="800" font-family="IBM Plex Mono,ui-monospace,monospace">${label}</text></svg>`;
 }
 
 function chipTowerSvg(denom, count) {
@@ -578,7 +578,7 @@ function chipTowerSvg(denom, count) {
   discs += `<ellipse cx="${(cx - rx * 0.28).toFixed(1)}" cy="${(topCy - ry * 0.3).toFixed(1)}" rx="${(rx * 0.3).toFixed(1)}" ry="${(ry * 0.28).toFixed(1)}" fill="rgba(255,255,255,0.32)"/>`;
 
   const overflowText = overflow > 0
-    ? `<text x="${cx.toFixed(1)}" y="${(baseH + 9).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="7.5" font-weight="700" font-family="Space Grotesk,sans-serif">+${overflow}</text>`
+    ? `<text x="${cx.toFixed(1)}" y="${(baseH + 9).toFixed(1)}" text-anchor="middle" fill="#6b7280" font-size="7.5" font-weight="700" font-family="IBM Plex Mono,ui-monospace,monospace">+${overflow}</text>`
     : '';
 
   return `<svg class="chip-tower-svg" width="${w}" height="${svgH}" viewBox="0 0 ${w} ${svgH}" aria-hidden="true">${discs}${overflowText}</svg>`;
@@ -690,6 +690,17 @@ function getVisualPots(room) {
   }));
 }
 
+// Seats are placed around the oval by angle, starting at the top (12
+// o'clock) and going clockwise — generalizes to however many players are
+// actually seated, matching a real table instead of a fixed 4-corner layout.
+function seatSlotPosition(index, total) {
+  const angle = (-90 + index * (360 / total)) * (Math.PI / 180);
+  return {
+    left: 50 + 40 * Math.cos(angle),
+    top: 50 + 45 * Math.sin(angle),
+  };
+}
+
 function renderTableTurnVisual(room) {
   if (!turnOrderTrackEl || !turnStateLegendEl) {
     return;
@@ -705,22 +716,10 @@ function renderTableTurnVisual(room) {
     return;
   }
 
-  const latestActionByPlayer = new Map();
-  room.actionLog
-    .slice()
-    .reverse()
-    .forEach((entry) => {
-      if (!latestActionByPlayer.has(entry.playerId)) {
-        latestActionByPlayer.set(entry.playerId, entry);
-      }
-    });
+  const isHost = currentPlayerId === room.hostPlayerId;
+  const canDragReorder = isHost && room.status !== "in_hand";
 
-  const actingIndex = players.findIndex((player) => player.id === room.actingPlayerId);
-  const orderedPlayers = actingIndex > 0
-    ? [...players.slice(actingIndex), ...players.slice(0, actingIndex)]
-    : players;
-
-  turnOrderTrackEl.innerHTML = orderedPlayers
+  turnOrderTrackEl.innerHTML = players
     .map((player, index) => {
       const isActing = room.status === "in_hand" && player.id === room.actingPlayerId;
       const isFolded = room.status === "in_hand" && !player.inHand;
@@ -728,45 +727,33 @@ function renderTableTurnVisual(room) {
       const isToCall = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment < room.currentBet;
       const wonThisHand = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.some((payout) => payout.playerId === player.id);
 
-      let stateLabel = "Waiting";
       let stateClass = "waiting";
       if (isFolded) {
-        stateLabel = "Folded";
         stateClass = "folded";
       } else if (isActing) {
-        stateLabel = "Acting";
         stateClass = "acting";
       } else if (isCalled) {
-        stateLabel = room.currentBet > 0 ? "Called" : "Checked";
         stateClass = "called";
       } else if (isToCall) {
-        stateLabel = "To Call";
         stateClass = "betting";
       } else if (wonThisHand) {
-        stateLabel = "Winner";
         stateClass = "winner";
       }
 
-      const latest = latestActionByPlayer.get(player.id);
-      const latestText = latest
-        ? `${latest.action}${typeof latest.amount === "number" ? ` ${latest.amount}` : ""}`
-        : "-";
-      const dealerBadge = player.seat === room.dealerSeat ? "D" : "";
-      const sbBadge = player.seat === room.smallBlindSeat ? "SB" : "";
-      const inHandMeta = room.status === "in_hand" && player.inHand ? `bet ${player.commitment}` : `stack ${player.stack}`;
+      const dealerBadge = player.seat === room.dealerSeat ? "D" : player.seat === room.smallBlindSeat ? "SB" : "";
+      const inHandMeta = room.status === "in_hand" && player.inHand ? `bet ${player.commitment}` : `${player.stack}`;
+      const pos = seatSlotPosition(index, players.length);
+      const initial = player.displayName.trim().slice(0, 1).toUpperCase() || "?";
 
       return `
-        <article class="turn-seat ${stateClass}">
-          <div class="turn-seat-top">
-            <span class="turn-order">${index + 1}</span>
-            <strong>${player.displayName}</strong>
-            <span class="turn-badges">${dealerBadge} ${sbBadge}</span>
+        <article class="turn-seat ${stateClass}${canDragReorder ? " draggable" : ""}" data-player-id="${player.id}" style="left:${pos.left.toFixed(2)}%; top:${pos.top.toFixed(2)}%;">
+          <div class="turn-seat-avatar">
+            ${escapeHtml(initial)}
+            <span class="turn-seat-order">${index + 1}</span>
+            ${dealerBadge ? `<span class="turn-seat-badge">${dealerBadge}</span>` : ""}
           </div>
-          <div class="turn-seat-meta">
-            <span>${stateLabel}</span>
-            <span>${inHandMeta}</span>
-            <span>last: ${latestText}</span>
-          </div>
+          <span class="turn-seat-name">${escapeHtml(player.displayName)}</span>
+          <span class="turn-seat-meta">${inHandMeta}</span>
         </article>
       `;
     })
@@ -778,6 +765,83 @@ function renderTableTurnVisual(room) {
     <span class="legend-pill betting">To Call</span>
     <span class="legend-pill folded">Folded</span>
   `;
+
+  if (canDragReorder) {
+    turnOrderTrackEl.querySelectorAll(".turn-seat.draggable").forEach((seatEl) => {
+      seatEl.addEventListener("pointerdown", (event) => startTableSeatDrag(event, players));
+    });
+  }
+}
+
+// Lets the host set table order directly on the table (dragging a seat to
+// where it should sit) instead of only through the list in Host Controls —
+// both call the same reorder_seats event, this is just a more direct way to
+// get there. Uses Pointer Events + setPointerCapture so the same code drives
+// mouse and touch, and the drag keeps tracking even once the finger/cursor
+// leaves the seat's own small hit area.
+function startTableSeatDrag(event, seatedPlayers) {
+  const seatEl = event.target.closest(".turn-seat");
+  if (!seatEl || !turnOrderTrackEl || !currentRoom || !currentPlayerId) {
+    return;
+  }
+
+  event.preventDefault();
+  seatEl.classList.add("dragging");
+  seatEl.setPointerCapture(event.pointerId);
+
+  const draggedId = seatEl.getAttribute("data-player-id");
+  const order = seatedPlayers.map((p) => p.id);
+
+  const pointFromEvent = (e) => {
+    const rect = turnOrderTrackEl.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * 100,
+      y: ((e.clientY - rect.top) / rect.height) * 100,
+    };
+  };
+
+  const onMove = (moveEvent) => {
+    const p = pointFromEvent(moveEvent);
+    seatEl.style.left = `${p.x}%`;
+    seatEl.style.top = `${p.y}%`;
+  };
+
+  const onUp = (upEvent) => {
+    seatEl.classList.remove("dragging");
+    seatEl.removeEventListener("pointermove", onMove);
+    seatEl.removeEventListener("pointerup", onUp);
+    seatEl.removeEventListener("pointercancel", onUp);
+
+    const p = pointFromEvent(upEvent);
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < order.length; i += 1) {
+      const slot = seatSlotPosition(i, order.length);
+      const d = Math.hypot(slot.left - p.x, slot.top - p.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    }
+
+    const from = order.indexOf(draggedId);
+    if (from < 0) {
+      return;
+    }
+    order.splice(from, 1);
+    order.splice(best, 0, draggedId);
+
+    emit({
+      type: "reorder_seats",
+      roomId: currentRoom.id,
+      actorPlayerId: currentPlayerId,
+      orderedPlayerIds: order,
+    });
+  };
+
+  seatEl.addEventListener("pointermove", onMove);
+  seatEl.addEventListener("pointerup", onUp);
+  seatEl.addEventListener("pointercancel", onUp);
 }
 
 function bindStackAndPotBreakdownHandlers(room) {

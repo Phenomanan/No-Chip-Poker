@@ -1,37 +1,48 @@
 :root {
-  --bg: #f4f3ee;
-  --bg-elev: #ffffff;
-  --ink: #1f2933;
-  --muted: #52606d;
-  --accent: #c2410c;
-  --accent-2: #0f766e;
-  --danger: #b91c1c;
-  --safe: #15803d;
-  --safe-ink: #166534;
-  --stroke: #d9e2ec;
-  --shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
-  --body-bg-1: #fff7ed;
-  --body-bg-2: #e6fffa;
-  --body-bg-3: #f9fafb;
-  --body-bg-4: #f4f3ee;
+  --bg: #e7ebdd;
+  --bg-elev: #f8f7ee;
+  --chrome: #ffffff;
+  --ink: #1c2a20;
+  --muted: #5c6b5a;
+  --accent: #a9772f;
+  --accent-2: #2f7d5a;
+  --danger: #a3273a;
+  --safe: #2f7d5a;
+  --safe-ink: #1f5e40;
+  --stroke: #d5dac4;
+  --felt: #dbe3cc;
+  --felt-deep: #c3d0ac;
+  --on-accent: #2b1d08;
+  --shadow: 0 16px 40px rgba(20, 35, 22, 0.12);
+  --body-bg-1: #eef1e1;
+  --body-bg-2: #e2e9d4;
+  --body-bg-3: #eceee0;
+  --body-bg-4: #e7ebdd;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Manrope", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 [data-theme="dark"] {
-  --bg: #111827;
-  --bg-elev: #1f2937;
-  --ink: #f3f4f6;
-  --muted: #9ca3af;
-  --accent: #ea580c;
-  --accent-2: #14b8a6;
-  --danger: #ef4444;
-  --safe: #22c55e;
-  --safe-ink: #4ade80;
-  --stroke: #374151;
-  --shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
-  --body-bg-1: #1c1008;
-  --body-bg-2: #0a1f1d;
-  --body-bg-3: #111827;
-  --body-bg-4: #111827;
+  --bg: #0a2e22;
+  --bg-elev: #17201b;
+  --chrome: #1e2a22;
+  --ink: #f4ecd8;
+  --muted: #c8bda0;
+  --accent: #cda449;
+  --accent-2: #3fa672;
+  --danger: #c1495a;
+  --safe: #3fa672;
+  --safe-ink: #eafff2;
+  --stroke: rgba(205, 164, 73, 0.28);
+  --felt: #0f3d2c;
+  --felt-deep: #0a2e22;
+  --on-accent: #241a06;
+  --shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  --body-bg-1: #0a2e22;
+  --body-bg-2: #0a2e22;
+  --body-bg-3: #0a2e22;
+  --body-bg-4: #08251b;
 }
 
 * {
@@ -40,10 +51,10 @@
 
 body {
   margin: 0;
-  font-family: "Space Grotesk", sans-serif;
+  font-family: var(--font-body);
   color: var(--ink);
-  background: radial-gradient(circle at 20% 20%, var(--body-bg-1) 0%, transparent 45%),
-    radial-gradient(circle at 80% 75%, var(--body-bg-2) 0%, transparent 35%),
+  background: radial-gradient(circle at 20% 10%, var(--body-bg-1) 0%, transparent 55%),
+    radial-gradient(circle at 85% 80%, var(--body-bg-2) 0%, transparent 45%),
     linear-gradient(160deg, var(--body-bg-3) 0%, var(--body-bg-4) 100%);
   min-height: 100vh;
   transition: background 0.2s ease, color 0.2s ease;
@@ -55,8 +66,8 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.18;
-  background-image: radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.1) 1px, transparent 0);
+  opacity: 0.12;
+  background-image: repeating-radial-gradient(circle at 50% 45%, rgba(0, 0, 0, 0.08) 0, rgba(0, 0, 0, 0.08) 1px, transparent 1px, transparent 3px);
   background-size: 22px 22px;
 }
 
@@ -66,20 +77,20 @@ body::before {
   height: 260px;
   border-radius: 9999px;
   filter: blur(58px);
-  opacity: 0.45;
+  opacity: 0.3;
   pointer-events: none;
 }
 
 .bg-blur-left {
   top: 4rem;
   left: 1rem;
-  background: #fdba74;
+  background: var(--accent);
 }
 
 .bg-blur-right {
   right: 1rem;
   bottom: 3rem;
-  background: #5eead4;
+  background: var(--accent-2);
 }
 
 .shell {
@@ -90,21 +101,25 @@ body::before {
   animation: shell-in 360ms ease-out;
 }
 
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
 .hero h1 {
   font-size: clamp(1.8rem, 4.5vw, 3.2rem);
   margin: 0.25rem 0;
   line-height: 1.04;
-  background: linear-gradient(120deg, #c2410c 0%, #0f766e 55%, #155e75 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--ink);
 }
 
 .eyebrow {
+  font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--accent);
-  font-weight: 700;
+  font-weight: 500;
+  font-size: 0.78rem;
   margin: 0;
 }
 
@@ -152,6 +167,22 @@ body::before {
 .control-grid,
 .room-grid {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+/* Bottom action sheet: the decision that actually needs a thumb stays
+   anchored to the bottom of the screen instead of scrolling away, like a
+   native app's primary action bar. */
+.control-grid {
+  position: sticky;
+  bottom: 0.6rem;
+  z-index: 15;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 0.4rem;
+  margin-left: -0.4rem;
+  margin-right: -0.4rem;
+  width: calc(100% + 0.8rem);
 }
 
 .stats-grid {
@@ -274,13 +305,13 @@ select:focus-visible {
 
 button {
   border: 0;
-  border-radius: 11px;
+  border-radius: 14px;
   padding: 0.8rem 1.2rem;
   min-height: 44px;
   min-width: 44px;
   background: var(--accent);
-  color: white;
-  font-weight: 700;
+  color: var(--on-accent);
+  font-weight: 800;
   cursor: pointer;
   transition: transform 120ms ease, filter 180ms ease;
   display: inline-flex;
@@ -299,6 +330,7 @@ button:active {
 
 button.ghost {
   background: var(--accent-2);
+  color: white;
 }
 
 /* Utility/reference action, not a decision — sits below the action buttons and
@@ -348,7 +380,7 @@ button.action.call {
 /* Raise: the warm hero accent — the "big decision" color, reserved for this and Start Hand. */
 button.action.raise {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border-color: transparent;
 }
 
@@ -446,8 +478,10 @@ button.action.danger {
 }
 
 .start-hand-main {
-  background: linear-gradient(145deg, #f97316 0%, #ea580c 100%);
-  box-shadow: 0 10px 20px rgba(234, 88, 12, 0.24);
+  font-family: var(--font-display);
+  font-weight: 700;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 80%, white 20%), var(--accent));
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .blind-strip-card {
@@ -505,11 +539,22 @@ button.action.danger {
 }
 
 .table-center-wrap {
-  display: grid;
-  grid-template-columns: minmax(280px, 430px) minmax(280px, 1fr);
-  gap: 0.8rem;
-  align-items: stretch;
-  margin: 0.7rem 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.9rem 0 1.1rem;
+}
+
+.table-oval {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 4 / 5;
+  border-radius: 50% / 42%;
+  background: radial-gradient(ellipse at 50% 38%, var(--felt) 0%, var(--felt-deep) 82%);
+  border: 3px solid color-mix(in srgb, var(--accent) 42%, var(--stroke));
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35), inset 0 0 0 8px rgba(0, 0, 0, 0.12), var(--shadow);
 }
 
 .payout-banner {
@@ -648,138 +693,30 @@ button.action.danger {
 }
 
 .pot-visual-button {
-  /* The pot is the single most important number on the page, so it gets the
-     richest, most saturated treatment on the page rather than a pale tint
-     that blends into the ambient background. */
-  background: radial-gradient(circle at 50% 15%, color-mix(in srgb, var(--accent) 55%, #fb923c 45%) 0%, color-mix(in srgb, var(--accent) 88%, black 12%) 100%);
+  /* The pot is the single most important number on the table, so it sits
+     dead center in the felt as a raised gold medallion the seats orbit
+     around, instead of a separate block competing for space beside them. */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  background: radial-gradient(circle at 50% 15%, color-mix(in srgb, var(--accent) 55%, #fff 25%) 0%, color-mix(in srgb, var(--accent) 88%, black 12%) 100%);
   border: 1px solid color-mix(in srgb, var(--accent) 70%, black 10%);
   color: white;
-  width: 100%;
-  min-height: 116px;
-  border-radius: 16px;
+  min-width: 108px;
+  width: 46%;
+  max-width: 148px;
+  min-height: unset;
+  padding: 0.5rem 0.6rem;
+  border-radius: 18px;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.35rem;
   grid-template-rows: auto 1fr;
   align-content: center;
   justify-items: center;
   box-shadow: 0 16px 32px color-mix(in srgb, var(--accent) 45%, transparent);
   overflow: hidden;
-}
-
-.table-turn-visual {
-  border: 1px solid var(--stroke);
-  border-radius: 16px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-2) 8%, var(--bg-elev)) 0%, var(--bg-elev) 100%);
-  padding: 0.7rem;
-  min-height: 116px;
-  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.1);
-}
-
-.table-turn-visual h4 {
-  margin: 0 0 0.45rem;
-}
-
-.turn-order-track {
-  display: grid;
-  gap: 0.38rem;
-}
-
-.turn-seat {
-  border: 1px solid var(--stroke);
-  border-radius: 10px;
-  padding: 0.4rem 0.5rem;
-  background: color-mix(in srgb, var(--bg-elev) 90%, #ffffff 10%);
-}
-
-.turn-seat-top {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.turn-order {
-  font-size: 0.75rem;
-  font-weight: 800;
-  color: var(--muted);
-  min-width: 1.2rem;
-}
-
-.turn-badges {
-  margin-left: auto;
-  font-size: 0.68rem;
-  color: var(--muted);
-  letter-spacing: 0.03em;
-}
-
-.turn-seat-meta {
-  margin-top: 0.2rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.turn-seat.acting {
-  border-color: color-mix(in srgb, var(--accent-2) 70%, var(--stroke));
-  background: color-mix(in srgb, var(--accent-2) 13%, var(--bg-elev));
-}
-
-.turn-seat.called {
-  border-color: color-mix(in srgb, var(--safe) 58%, var(--stroke));
-}
-
-.turn-seat.betting {
-  border-color: color-mix(in srgb, var(--accent) 60%, var(--stroke));
-}
-
-.turn-seat.folded {
-  opacity: 0.68;
-}
-
-.turn-seat.winner {
-  border-color: color-mix(in srgb, #f59e0b 60%, var(--stroke));
-}
-
-.turn-state-legend {
-  margin-top: 0.48rem;
-  display: flex;
-  gap: 0.28rem;
-  flex-wrap: wrap;
-}
-
-.legend-pill {
-  border-radius: 999px;
-  border: 1px solid var(--stroke);
-  padding: 0.12rem 0.45rem;
-  font-size: 0.72rem;
-  color: var(--muted);
-}
-
-.legend-pill.acting {
-  border-color: color-mix(in srgb, var(--accent-2) 60%, var(--stroke));
-  color: var(--accent-2);
-}
-
-.legend-pill.called {
-  border-color: color-mix(in srgb, var(--safe) 55%, var(--stroke));
-  color: var(--safe-ink);
-}
-
-.legend-pill.betting {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--stroke));
-  color: var(--accent);
-}
-
-.legend-pill.folded {
-  border-color: color-mix(in srgb, var(--danger) 45%, var(--stroke));
-  color: var(--danger);
-}
-
-.turn-empty {
-  margin: 0;
-  font-size: 0.86rem;
-  color: var(--muted);
 }
 
 .pot-visual-button:hover {
@@ -812,16 +749,18 @@ button.action.danger {
 
 .pot-visual-head span {
   color: color-mix(in srgb, white 82%, transparent);
-  font-size: 0.82rem;
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .pot-visual-head strong {
-  font-size: 1.55rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
   line-height: 1;
-  padding: 0.2rem 0.6rem;
+  padding: 0.1rem 0.5rem;
   border-radius: 999px;
   background: white;
   color: color-mix(in srgb, var(--accent) 88%, black 12%);
@@ -832,8 +771,8 @@ button.action.danger {
   display: flex;
   align-items: end;
   justify-content: center;
-  gap: 0.5rem;
-  min-height: 54px;
+  gap: 0.4rem;
+  min-height: 40px;
   width: 100%;
   position: relative;
   z-index: 1;
@@ -856,12 +795,12 @@ button.action.danger {
 }
 
 .pot-pile-label {
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-weight: 700;
-  background: color-mix(in srgb, var(--bg-elev) 75%, transparent 25%);
+  background: color-mix(in srgb, white 75%, transparent 25%);
   padding: 0.06rem 0.3rem;
   border-radius: 999px;
 }
@@ -874,6 +813,190 @@ button.action.danger {
   margin-left: 0.05rem;
   translate: 0 5px;
   opacity: 0.92;
+}
+
+/* Seats sit directly on the felt, positioned around the oval by JS (angle
+   math generalized for however many players are seated) instead of a linear
+   list — this is the "table" the dealer instruction banner keeps referring
+   to, made literal. */
+.turn-order-track {
+  position: absolute;
+  inset: 0;
+}
+
+.turn-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: left 0.32s cubic-bezier(0.2, 0.7, 0.3, 1), top 0.32s cubic-bezier(0.2, 0.7, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 76px;
+  z-index: 2;
+}
+
+.turn-seat-avatar {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--chrome);
+  border: 2px solid var(--stroke);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--ink);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.turn-seat-badge {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.56rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--felt);
+}
+
+.turn-seat-order {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--felt-deep);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--stroke);
+}
+
+.turn-seat-name {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--ink);
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-seat-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--muted);
+}
+
+.turn-seat.acting .turn-seat-avatar {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: seat-pulse 1.8s ease-in-out infinite;
+}
+
+.turn-seat.acting .turn-seat-name {
+  color: var(--accent);
+}
+
+@keyframes seat-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 18%, transparent), 0 0 24px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+}
+
+.turn-seat.called .turn-seat-avatar {
+  border-color: var(--safe);
+}
+
+.turn-seat.betting .turn-seat-avatar {
+  border-color: var(--danger);
+}
+
+.turn-seat.folded {
+  opacity: 0.4;
+}
+
+.turn-seat.winner .turn-seat-avatar {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.turn-seat.draggable .turn-seat-avatar {
+  cursor: grab;
+  touch-action: none;
+}
+
+.turn-seat.dragging {
+  transition: none;
+  z-index: 6;
+}
+
+.turn-seat.dragging .turn-seat-avatar {
+  cursor: grabbing;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5), 0 0 0 3px var(--accent);
+  transform: scale(1.1);
+}
+
+.turn-state-legend {
+  margin-top: 0.1rem;
+  display: flex;
+  gap: 0.28rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.legend-pill {
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  padding: 0.12rem 0.45rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.legend-pill.acting {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--stroke));
+  color: var(--accent);
+}
+
+.legend-pill.called {
+  border-color: color-mix(in srgb, var(--safe) 55%, var(--stroke));
+  color: var(--safe-ink);
+}
+
+.legend-pill.betting {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--stroke));
+  color: var(--danger);
+}
+
+.legend-pill.folded {
+  border-color: color-mix(in srgb, var(--muted) 45%, var(--stroke));
+  color: var(--muted);
+}
+
+.turn-empty {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
 }
 
 .room-meta span {
