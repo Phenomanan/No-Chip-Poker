@@ -7,6 +7,23 @@ import path from "node:path";
 const PORT = Number(process.env.POT_TEST_PORT || 3021);
 const SERVER_URL = `http://127.0.0.1:${PORT}`;
 
+// The host confirms each street's deal automatically so this script can focus on betting
+// (the deal gate itself is covered by test-deal-gate.mjs).
+function autoDeal(socket, roomId, hostId) {
+  let last = null;
+  socket.on("event", (evt) => {
+    if (evt?.type !== "room_state") return;
+    const room = evt.room;
+    if (!room.awaitingDeal) {
+      if (room.street === "preflop" || room.status !== "in_hand") last = null;
+      return;
+    }
+    if (room.street === last) return;
+    last = room.street;
+    socket.emit("event", { type: "confirm_deal", roomId, actorPlayerId: hostId });
+  });
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -150,6 +167,7 @@ async function runScenario() {
     const roomId = created.room.id;
     const roomCode = created.room.code;
     const hostId = created.playerId;
+    autoDeal(hostSocket, roomId, hostId);
 
     p2Socket.emit("event", {
       type: "join_room",
@@ -414,6 +432,7 @@ async function runSidePotScenario() {
     const roomId = created.room.id;
     const roomCode = created.room.code;
     const hostId = created.playerId;
+    autoDeal(hostSocket, roomId, hostId);
 
     p2Socket.emit("event", {
       type: "join_room",
@@ -704,6 +723,7 @@ async function runContestedSidePotScenario() {
     const roomId = created.room.id;
     const roomCode = created.room.code;
     const hostId = created.playerId;
+    autoDeal(hostSocket, roomId, hostId);
 
     p2Socket.emit("event", {
       type: "join_room",
@@ -995,6 +1015,7 @@ async function runHeadsUpUnevenStacksAllInScenario() {
     const roomId = created.room.id;
     const roomCode = created.room.code;
     const hostId = created.playerId;
+    autoDeal(hostSocket, roomId, hostId);
 
     p2Socket.emit("event", {
       type: "join_room",

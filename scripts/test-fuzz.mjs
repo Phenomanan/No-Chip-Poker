@@ -68,8 +68,8 @@ async function playTable(server, seed) {
 
   function checkActing(label) {
     const s = t.state;
-    if (s.status !== "in_hand") {
-      assert(s.actingPlayerId === null, `${label}: acting player set while status is ${s.status}`);
+    if (s.status !== "in_hand" || s.awaitingDeal) {
+      assert(s.actingPlayerId === null, `${label}: acting player set while status is ${s.status}${s.awaitingDeal ? " (waiting for the deal)" : ""}`);
       return;
     }
     const actor = s.players.find((p) => p.id === s.actingPlayerId);
@@ -217,7 +217,7 @@ async function playTable(server, seed) {
         steps += 1;
         assert(steps < 250, `hand ${hand} is stuck after ${steps} steps; last: ${actions.slice(-6).join(" ")}`);
         checkActing(`hand ${hand} step ${steps}`);
-        if (rand() < 0.12) await illegalProbe();
+        if (rand() < 0.12 && !t.state.awaitingDeal) await illegalProbe();
 
         // Occasionally the host removes a non-host player mid-hand.
         if (steps > 2 && rand() < 0.04) {
@@ -235,6 +235,22 @@ async function playTable(server, seed) {
           }
         }
 
+        if (t.state.awaitingDeal) {
+          // Betting must not start until the host confirms the new cards are dealt.
+          const early = await t.act(seated().find((p) => p.inHand && p.stack > 0)?.displayName ?? "Host", "check");
+          assert(!early.ok, "an action was accepted while the street was waiting for the deal");
+          const outsider = seated().find((p) => p.displayName !== "Host");
+          if (outsider) {
+            const sneaky = await t.confirmDeal(outsider.displayName);
+            assert(!sneaky.ok, "a non-host confirmed the deal");
+          }
+          const dealt = await t.confirmDeal();
+          assert(dealt.ok, `confirm_deal rejected: ${dealt.error}`);
+          actions.push(`DEAL:${t.state.street}`);
+          stats.deals = (stats.deals || 0) + 1;
+          checkConservation(`hand ${hand} after the deal`);
+          continue;
+        }
         actions.push(await randomAction());
         checkConservation(`hand ${hand} after ${actions[actions.length - 1]}`);
       }

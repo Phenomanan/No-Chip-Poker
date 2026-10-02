@@ -42,5 +42,8 @@ jobs:
       - name: Run kick and reorder rules tests
         run: npm run test:kick-reorder
 
+      - name: Run deal gate tests
+        run: npm run test:deal-gate
+
       - name: Run randomized play (fuzz) test
         run: FUZZ_TABLES=3 FUZZ_HANDS=8 npm run test:fuzz

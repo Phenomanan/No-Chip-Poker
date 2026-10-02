@@ -51,6 +51,19 @@ end the instant everyone else's calls caught up to the blind — skipping the bl
 option to check or raise. `roomStreetActionState` (server-side, persisted) is what tracks
 "acted this street" per player; it resets on every street transition.
 
+## Deal gate (flop, turn, river)
+
+When a street's betting finishes, the server (`advanceStreetOrShowdown`) moves to the next
+street but sets `awaitingDeal = true` and leaves `actingPlayerId` null: nobody is asked to act
+until the host confirms the physical cards are on the table (3 for the flop, then 1, then 1)
+with the `confirm_deal` event. Only the host may confirm, and only while `awaitingDeal` is
+set; `submit_action` is rejected in the meantime. Confirming picks the first postflop actor
+(or advances again straight away when fewer than two players can still act, so an all-in
+runout needs a confirmation per street and then goes to showdown). Removing players while
+waiting never skips the gate. Preflop has no gate: the hand starts straight into betting.
+`scripts/test-deal-gate.mjs` covers this, and the fuzz/soak/regression scripts confirm deals as
+they play.
+
 ## Pot/payout model
 
 `calculatePots` walks each player's total contribution for the hand (`totalContribution`,
@@ -136,7 +149,7 @@ engine — see the note in `README.md`'s feature list.
 
 ## Testing
 
-`npm test` runs five suites: `scripts/test-rules-engine.mjs` (pure, synchronous unit tests
+`npm test` runs the suites below (plus `test-deal-gate.mjs`, `test-kick-and-reorder.mjs` and `test-fuzz.mjs`, described in their own headers): `scripts/test-rules-engine.mjs` (pure, synchronous unit tests
 against the compiled `rules-engine` module — no server, no sockets; pot-splitting, turn-order,
 big-blind-option, and admin-permission edge cases) plus four integration suites that spawn a
 real server on an isolated port and drive it over real `socket.io-client` connections the way

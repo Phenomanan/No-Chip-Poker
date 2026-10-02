@@ -11,6 +11,23 @@ import path from "node:path";
 const PORT = Number(process.env.ADMIN_TEST_PORT || 3022);
 const SERVER_URL = `http://127.0.0.1:${PORT}`;
 
+// The host confirms each street's deal automatically so this script can focus on betting
+// (the deal gate itself is covered by test-deal-gate.mjs).
+function autoDeal(socket, roomId, hostId) {
+  let last = null;
+  socket.on("event", (evt) => {
+    if (evt?.type !== "room_state") return;
+    const room = evt.room;
+    if (!room.awaitingDeal) {
+      if (room.street === "preflop" || room.status !== "in_hand") last = null;
+      return;
+    }
+    if (room.street === last) return;
+    last = room.street;
+    socket.emit("event", { type: "confirm_deal", roomId, actorPlayerId: hostId });
+  });
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -153,6 +170,7 @@ async function testRemovePlayerMidHand() {
     const roomId = created.room.id;
     const roomCode = created.room.code;
     const hostId = created.playerId;
+    autoDeal(hostSocket, roomId, hostId);
 
     const p2Join = await connectAndJoin(roomCode, "P2");
     p2Socket = p2Join.socket;
@@ -256,6 +274,7 @@ async function testReorderSeats() {
     const roomId = created.room.id;
     const roomCode = created.room.code;
     const hostId = created.playerId;
+    autoDeal(hostSocket, roomId, hostId);
 
     const p2Join = await connectAndJoin(roomCode, "P2");
     p2Socket = p2Join.socket;

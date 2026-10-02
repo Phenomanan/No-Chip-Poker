@@ -159,6 +159,7 @@ function createDefaultBlindSchedule(): BlindScheduleState {
 
 function normalizeRoomState(room: RoomState): RoomState {
   room.blindVote = room.blindVote ?? null;
+  room.awaitingDeal = Boolean(room.awaitingDeal);
   // Older persisted snapshots may still have the retired "pending_ack" state
   // from the removed payout-acknowledgment step; treat anything but a known
   // value as idle (payouts are applied to stacks synchronously now, so there's
@@ -441,6 +442,7 @@ function settleHand(room: RoomState, winnerIds: string[], potWinnerIds?: string[
   room.status = "waiting";
   room.street = "resolved";
   room.actingPlayerId = null;
+  room.awaitingDeal = false;
   room.currentBet = 0;
 }
 
@@ -448,15 +450,11 @@ function moveToShowdown(room: RoomState): void {
   room.status = "paused";
   room.street = "showdown";
   room.actingPlayerId = null;
+  room.awaitingDeal = false;
   room.pots = calculatePots(room);
 }
 
 function advanceStreetOrShowdown(room: RoomState): void {
-  if (countActionCapablePlayers(room) <= 1) {
-    moveToShowdown(room);
-    return;
-  }
-
   const streetOrder: RoomState["street"][] = ["preflop", "flop", "turn", "river"];
   const streetIndex = streetOrder.indexOf(room.street);
 
@@ -475,27 +473,12 @@ function advanceStreetOrShowdown(room: RoomState): void {
 
   room.pots = calculatePots(room);
   resetStreetActionState(room);
-  room.actingPlayerId = findFirstPostflopActingPlayer(room);
 
-  // If all remaining players are all-in, immediately continue streets until showdown.
-  while (room.actingPlayerId === null && room.street !== "showdown") {
-    const currentIndex = streetOrder.indexOf(room.street);
-    if (currentIndex === -1 || currentIndex === streetOrder.length - 1) {
-      moveToShowdown(room);
-      return;
-    }
-
-    room.street = streetOrder[currentIndex + 1];
-    resetStreetActionState(room);
-  }
-
-  if (room.street !== "showdown") {
-    room.actingPlayerId = findFirstPostflopActingPlayer(room);
-  }
-
-  if (room.actingPlayerId === null) {
-    moveToShowdown(room);
-  }
+  // The physical dealer puts the new community cards down first. Nobody is asked to
+  // act until the host confirms that (see confirm_deal), even if nobody can bet
+  // because everyone left is all-in — the board still has to be dealt out.
+  room.awaitingDeal = true;
+  room.actingPlayerId = null;
 }
 
 function createHostPlayer(input: CreateRoomInput): Player {
@@ -526,6 +509,7 @@ function createRoom(input: CreateRoomInput, host: Player): RoomState {
     dealerSeat: host.seat,
     smallBlindSeat: host.seat,
     actingPlayerId: null,
+    awaitingDeal: false,
     pots: [],
     currentBet: 0,
     blinds: {
@@ -848,6 +832,7 @@ io.on("connection", (socket) => {
 
       room.status = "in_hand";
       room.street = "preflop";
+      room.awaitingDeal = false;
       room.pots = [];
       room.payouts = [];
       room.payoutState = "idle";
@@ -1109,6 +1094,36 @@ io.on("connection", (socket) => {
       return;
     }
 
+    if (event.type === "confirm_deal") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (room.hostPlayerId !== event.actorPlayerId) {
+        socket.emit("event", { type: "error", message: "Only the host can confirm the cards are dealt." });
+        return;
+      }
+
+      if (room.status !== "in_hand" || !room.awaitingDeal) {
+        socket.emit("event", { type: "error", message: "There are no cards waiting to be dealt." });
+        return;
+      }
+
+      room.awaitingDeal = false;
+      if (countActionCapablePlayers(room) > 1) {
+        room.actingPlayerId = findFirstPostflopActingPlayer(room);
+      }
+      if (room.actingPlayerId === null) {
+        // Nobody can bet (everyone left is all-in): on to the next card, or the showdown.
+        advanceStreetOrShowdown(room);
+      }
+
+      emitRoomState(room.id);
+      return;
+    }
+
     if (event.type === "transfer_host") {
       const room = roomById.get(event.roomId);
       if (!room) {
@@ -1173,7 +1188,7 @@ io.on("connection", (socket) => {
         const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator").sort((a, b) => a.seat - b.seat);
         if (playersInHand.length === 1) {
           settleHand(room, [playersInHand[0].id]);
-        } else if (room.status === "in_hand") {
+        } else if (room.status === "in_hand" && !room.awaitingDeal) {
           if (shouldSettleHand(room, currentActedPlayerIds(room))) {
             advanceStreetOrShowdown(room);
           } else if (room.actingPlayerId === target.id) {
