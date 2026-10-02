@@ -794,9 +794,9 @@ button.action.danger {
 }
 
 .pot-visual-stacks .chip-pile-tower svg {
-  transform: scale(0.72);
+  transform: scale(0.62);
   transform-origin: bottom center;
-  margin: 0 -3px;
+  margin: 0 -5px;
 }
 
 .pot-contrib-row {
@@ -836,9 +836,13 @@ button.action.danger {
 }
 
 .seat-chips-pile .chip-pile-tower svg {
-  transform: scale(0.82);
+  transform: scale(0.86);
   transform-origin: bottom center;
-  margin: 0 -2px;
+  margin: 0 -4px;
+}
+
+.seat-chips-pile .chip-pile-tower:nth-child(2) {
+  margin-bottom: -2px;
 }
 
 .seat-chips-amount {
@@ -846,8 +850,9 @@ button.action.danger {
   font-size: 0.66rem;
   font-weight: 700;
   line-height: 1;
-  color: var(--ink);
-  background: rgba(0, 0, 0, 0.42);
+  color: color-mix(in srgb, var(--accent) 35%, var(--ink));
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 999px;
   padding: 0.14rem 0.5rem;
   font-variant-numeric: tabular-nums;
