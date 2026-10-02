@@ -217,6 +217,10 @@ export class Table {
     });
   }
 
+  confirmDeal(name = this.hostKey) {
+    return this.send(name, { type: "confirm_deal", roomId: this.roomId, actorPlayerId: this.id(name) });
+  }
+
   kick(targetName, byName = this.hostKey) {
     return this.send(byName, {
       type: "remove_player",
@@ -249,6 +253,11 @@ export class Table {
   async passiveUntil(until, maxSteps = 60) {
     for (let i = 0; i < maxSteps; i += 1) {
       if (until(this.state)) return;
+      if (this.state.awaitingDeal) {
+        const dealt = await this.confirmDeal();
+        if (!dealt.ok) throw new Error(`confirm_deal rejected: ${dealt.error}`);
+        continue;
+      }
       const actor = this.actingName();
       if (!actor) throw new Error(`No acting player while waiting (status=${this.state.status}, street=${this.state.street})`);
       const me = this.state.players.find((x) => x.id === this.id(actor));

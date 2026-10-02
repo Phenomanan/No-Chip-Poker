@@ -179,6 +179,16 @@ function formatStreet(street) {
 // old bare street label ("Current stage: Flop") too easy to miss/misread, so
 // this spells out exactly what the physical dealer should do right now.
 function formatDealerInstruction(room) {
+  if (room.status === "in_hand" && room.awaitingDeal) {
+    const dealt = { flop: "3 community cards (the flop)", turn: "1 more community card (the turn)", river: "the final community card (the river)" }[room.street] || "the next cards";
+    return {
+      title: `Deal ${dealt}`,
+      detail: currentPlayerId === room.hostPlayerId
+        ? "Burn one card, deal face-up, then tap the button below. Betting starts after you do."
+        : "Betting starts as soon as the host confirms the cards are dealt.",
+    };
+  }
+
   if (room.status === "in_hand") {
     switch (room.street) {
       case "preflop":
@@ -229,6 +239,7 @@ function renderDealerInstructionBanner(room) {
   }
 
   dealerInstructionBannerEl.classList.remove("hidden");
+  dealerInstructionBannerEl.classList.toggle("awaiting-deal", Boolean(room.awaitingDeal));
   dealerInstructionBannerEl.innerHTML = `
     <p class="dealer-instruction-title">${escapeHtml(instruction.title)}</p>
     <p class="dealer-instruction-detail">${escapeHtml(instruction.detail)}</p>
@@ -668,7 +679,7 @@ function renderBreakdownRows(amount) {
     .join("");
 }
 
-function openChipDetailModal(title, sections) {
+function openChipDetailModal(title, sections, extraHtml = "") {
   if (!chipDetailModal || !chipDetailTitle || !chipDetailBody) {
     return;
   }
@@ -682,36 +693,28 @@ function openChipDetailModal(title, sections) {
         ${renderBreakdownRows(section.amount)}
       </section>
     `)
-    .join("");
+    .join("") + extraHtml;
 
   chipDetailModal.classList.remove("hidden");
+}
+
+// A compact pile of chip towers for any amount. Fixed height so whatever the
+// amount, the thing it sits in never changes size or shifts.
+function renderChipPile(amount, maxTowers = 3) {
+  if (amount <= 0) {
+    return '<span class="chip-pile-empty"></span>';
+  }
+  return getChipBreakdown(amount)
+    .slice(0, maxTowers)
+    .map(({ denom, count }) => `<span class="chip-pile-tower">${chipTowerSvg(denom, Math.min(count, 5))}</span>`)
+    .join("");
 }
 
 function renderPotStackPreview(room) {
   if (!potVisualStacksEl) {
     return;
   }
-
-  const previewPots = getVisualPots(room);
-  const total = previewPots.reduce((sum, pot) => sum + pot.amount, 0);
-
-  potVisualStacksEl.innerHTML = previewPots
-    .map((pot, index) => {
-      const potKind = index === 0 ? "main" : "side";
-      const pileLabel = pot.label || (index === 0 ? "Main" : `Side ${index}`);
-      const share = total > 0 ? pot.amount / total : 0;
-      const scale = clamp(0.7 + share * 1.35, 0.7, 1.55);
-      const chipDensityFactor = clamp(share * 3.2, 0.55, 2.25);
-      return `
-        <span class="pot-pile-wrap ${potKind}">
-          <span class="pot-pile ${potKind}" style="--pile-scale:${scale.toFixed(3)};" title="${potKind === "main" ? "Main Pot" : `Side Pot ${index}`} ${pot.amount}">
-            ${renderStackPreview(pot.amount, chipDensityFactor, "no pot yet", "pot-empty")}
-          </span>
-          <span class="pot-pile-label">${pileLabel}</span>
-        </span>
-      `;
-    })
-    .join("");
+  potVisualStacksEl.innerHTML = renderChipPile(calculatePotAmount(room));
 }
 
 function getVisualPots(room) {
@@ -744,6 +747,43 @@ function seatSlotPosition(index, total) {
   };
 }
 
+// Where a seat's chip stack sits: on the felt in front of the seat, toward the
+// pot. It follows the slot (the seat position in the order), never the pointer.
+function chipSlotPosition(index, total) {
+  const slot = seatSlotPosition(index, total);
+  return {
+    left: slot.left + (50 - slot.left) * 0.4,
+    top: slot.top + (50 - slot.top) * 0.4,
+  };
+}
+
+function placeAt(el, pos) {
+  el.style.left = `${pos.left.toFixed(2)}%`;
+  el.style.top = `${pos.top.toFixed(2)}%`;
+}
+
+// Seat and chip elements persist between renders (keyed by player id) so they
+// animate from slot to slot when the order changes instead of being rebuilt.
+function reconcileById(container, selector, attr, ids, create) {
+  const existing = new Map();
+  container.querySelectorAll(selector).forEach((el) => existing.set(el.getAttribute(attr), el));
+  existing.forEach((el, id) => {
+    if (!ids.includes(id)) {
+      el.remove();
+      existing.delete(id);
+    }
+  });
+  return (id) => {
+    let el = existing.get(id);
+    if (!el) {
+      el = create(id);
+      container.appendChild(el);
+      existing.set(id, el);
+    }
+    return el;
+  };
+}
+
 function renderTableTurnVisual(room) {
   if (!turnOrderTrackEl || !turnStateLegendEl) {
     return;
@@ -758,74 +798,96 @@ function renderTableTurnVisual(room) {
     turnStateLegendEl.innerHTML = "";
     return;
   }
+  turnOrderTrackEl.querySelector(".turn-empty")?.remove();
 
+  const ids = players.map((p) => p.id);
   const isHost = currentPlayerId === room.hostPlayerId;
-  const canDragReorder = isHost && room.status === "waiting";
+  const canDragReorder = isHost && room.status === "waiting" && players.length > 1;
 
-  turnOrderTrackEl.innerHTML = players
-    .map((player, index) => {
-      const isActing = room.status === "in_hand" && player.id === room.actingPlayerId;
-      const isFolded = room.status === "in_hand" && !player.inHand;
-      const isCalled = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment === room.currentBet;
-      const isToCall = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment < room.currentBet;
-      const wonThisHand = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.some((payout) => payout.playerId === player.id);
-
-      let stateClass = "waiting";
-      if (isFolded) {
-        stateClass = "folded";
-      } else if (isActing) {
-        stateClass = "acting";
-      } else if (isCalled) {
-        stateClass = "called";
-      } else if (isToCall) {
-        stateClass = "betting";
-      } else if (wonThisHand) {
-        stateClass = "winner";
+  const seatFor = reconcileById(turnOrderTrackEl, ".turn-seat", "data-player-id", ids, (id) => {
+    const el = document.createElement("article");
+    el.setAttribute("data-player-id", id);
+    el.addEventListener("pointerdown", (event) => {
+      if (el.classList.contains("draggable")) {
+        startTableSeatDrag(event, el);
       }
+    });
+    return el;
+  });
+  const chipsFor = reconcileById(turnOrderTrackEl, ".seat-chips", "data-chips-for", ids, (id) => {
+    const el = document.createElement("div");
+    el.setAttribute("data-chips-for", id);
+    el.setAttribute("data-player-stack-id", id);
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    return el;
+  });
 
-      const dealerBadge = player.seat === room.dealerSeat ? "D" : player.seat === room.smallBlindSeat ? "SB" : "";
-      const inHandMeta = room.status === "in_hand" && player.inHand ? `bet ${player.commitment}` : `${player.stack}`;
-      const pos = seatSlotPosition(index, players.length);
-      const initial = player.displayName.trim().slice(0, 1).toUpperCase() || "?";
+  players.forEach((player, index) => {
+    const isActing = room.status === "in_hand" && player.id === room.actingPlayerId;
+    const isFolded = room.status === "in_hand" && !player.inHand;
+    const isCalled = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment === room.currentBet;
+    const isToCall = room.status === "in_hand" && room.currentBet > 0 && player.inHand && player.commitment < room.currentBet;
+    const wonThisHand = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.some((payout) => payout.playerId === player.id);
 
-      return `
-        <article class="turn-seat ${stateClass}${canDragReorder ? " draggable" : ""}" data-player-id="${player.id}" style="left:${pos.left.toFixed(2)}%; top:${pos.top.toFixed(2)}%;">
-          <div class="turn-seat-avatar">
-            ${escapeHtml(initial)}
-            <span class="turn-seat-order">${index + 1}</span>
-            ${dealerBadge ? `<span class="turn-seat-badge">${dealerBadge}</span>` : ""}
-          </div>
-          <span class="turn-seat-name">${escapeHtml(player.displayName)}</span>
-          <span class="turn-seat-meta">${inHandMeta}</span>
-        </article>
-      `;
-    })
-    .join("");
+    let stateClass = "waiting";
+    if (isFolded) {
+      stateClass = "folded";
+    } else if (isActing) {
+      stateClass = "acting";
+    } else if (isCalled) {
+      stateClass = "called";
+    } else if (isToCall) {
+      stateClass = "betting";
+    } else if (wonThisHand) {
+      stateClass = "winner";
+    }
+
+    const dealerBadge = player.seat === room.dealerSeat ? "D" : player.seat === room.smallBlindSeat ? "SB" : "";
+    const bet = room.status === "in_hand" && player.inHand && player.commitment > 0 ? player.commitment : 0;
+    const initial = player.displayName.trim().slice(0, 1).toUpperCase() || "?";
+
+    const seatEl = seatFor(player.id);
+    seatEl.className = `turn-seat ${stateClass}${canDragReorder ? " draggable" : ""}${seatEl.classList.contains("dragging") ? " dragging" : ""}`;
+    seatEl.innerHTML = `
+      <div class="turn-seat-avatar">
+        ${escapeHtml(initial)}
+        <span class="turn-seat-order">${index + 1}</span>
+        ${dealerBadge ? `<span class="turn-seat-badge">${dealerBadge}</span>` : ""}
+      </div>
+      <span class="turn-seat-name">${escapeHtml(player.displayName)}</span>
+      <span class="turn-seat-meta${bet ? " has-bet" : ""}">${bet ? `bet ${bet}` : "&nbsp;"}</span>
+    `;
+    if (!seatEl.classList.contains("dragging")) {
+      placeAt(seatEl, seatSlotPosition(index, players.length));
+    }
+
+    const chipsEl = chipsFor(player.id);
+    chipsEl.className = `seat-chips${isFolded ? " folded" : ""}${player.stack <= 0 ? " empty" : ""}`;
+    chipsEl.setAttribute("aria-label", `${player.displayName} stack ${player.stack}`);
+    chipsEl.innerHTML = `
+      <span class="seat-chips-pile">${renderChipPile(player.stack)}</span>
+      <span class="seat-chips-amount">${player.stack > 0 ? player.stack : "0"}</span>
+    `;
+    placeAt(chipsEl, chipSlotPosition(index, players.length));
+  });
 
   turnStateLegendEl.innerHTML = `
     <span class="legend-pill acting">Acting</span>
     <span class="legend-pill called">Called/Checked</span>
     <span class="legend-pill betting">To Call</span>
     <span class="legend-pill folded">Folded</span>
-    ${canDragReorder && players.length > 1 ? '<span class="seat-drag-hint">Drag a seat to change the table order</span>' : ""}
+    ${canDragReorder ? '<span class="seat-drag-hint">Drag a player to change the table order</span>' : ""}
   `;
-
-  if (canDragReorder) {
-    turnOrderTrackEl.querySelectorAll(".turn-seat.draggable").forEach((seatEl) => {
-      seatEl.addEventListener("pointerdown", (event) => startTableSeatDrag(event, players));
-    });
-  }
 }
 
-// Lets the host set table order directly on the table (dragging a seat to
-// where it should sit) instead of only through the list in Host Controls —
-// both call the same reorder_seats event, this is just a more direct way to
-// get there. Uses Pointer Events + setPointerCapture so the same code drives
-// mouse and touch, and the drag keeps tracking even once the finger/cursor
-// leaves the seat's own small hit area.
-function startTableSeatDrag(event, seatedPlayers) {
-  const seatEl = event.target.closest(".turn-seat");
-  if (!seatEl || !turnOrderTrackEl || !currentRoom || !currentPlayerId) {
+// Lets the host set table order directly on the table (dragging a player to
+// where they should sit) instead of only through the list in Host Controls —
+// both call the same reorder_seats event. Only the player's icon and name
+// follow the pointer; the chip stacks stay in their slots and slide to the new
+// ones once the server confirms the new order.
+function startTableSeatDrag(event, seatEl) {
+  if (!turnOrderTrackEl || !currentRoom || !currentPlayerId) {
     return;
   }
 
@@ -838,7 +900,10 @@ function startTableSeatDrag(event, seatedPlayers) {
   }
 
   const draggedId = seatEl.getAttribute("data-player-id");
-  const order = seatedPlayers.map((p) => p.id);
+  const order = currentRoom.players
+    .filter((player) => player.role !== "spectator")
+    .sort((a, b) => a.seat - b.seat)
+    .map((player) => player.id);
 
   const pointFromEvent = (e) => {
     const rect = turnOrderTrackEl.getBoundingClientRect();
@@ -850,8 +915,7 @@ function startTableSeatDrag(event, seatedPlayers) {
 
   const onMove = (moveEvent) => {
     const p = pointFromEvent(moveEvent);
-    seatEl.style.left = `${p.x}%`;
-    seatEl.style.top = `${p.y}%`;
+    placeAt(seatEl, { left: p.x, top: p.y });
   };
 
   const onUp = (upEvent) => {
@@ -873,7 +937,19 @@ function startTableSeatDrag(event, seatedPlayers) {
     }
 
     const from = order.indexOf(draggedId);
-    if (from < 0) {
+    // Settle the dragged seat into its drop slot; the next room_state re-renders
+    // everything (including the chip stacks) into the confirmed order. If nothing
+    // changed or the server refuses, re-render so nothing is left stranded.
+    placeAt(seatEl, seatSlotPosition(best, order.length));
+    setTimeout(() => {
+      if (currentRoom) {
+        renderTableTurnVisual(currentRoom);
+      }
+    }, 1200);
+    if (from < 0 || from === best) {
+      if (currentRoom) {
+        renderTableTurnVisual(currentRoom);
+      }
       return;
     }
     order.splice(from, 1);
@@ -894,40 +970,39 @@ function startTableSeatDrag(event, seatedPlayers) {
 
 function bindStackAndPotBreakdownHandlers(room) {
   document.querySelectorAll("[data-player-stack-id]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.onclick = () => {
       const playerId = button.getAttribute("data-player-stack-id");
-      if (!playerId) {
-        return;
-      }
-
       const player = room.players.find((p) => p.id === playerId);
       if (!player) {
         return;
       }
-
-      openChipDetailModal(`${player.displayName} Stack Breakdown`, [
-        {
-          title: "Player Stack",
-          amount: player.stack,
-        },
-      ]);
-    });
+      openChipDetailModal(`${player.displayName}'s Stack`, [{ title: "Player Stack", amount: player.stack }]);
+    };
   });
 
   if (potVisualButton) {
     potVisualButton.onclick = () => {
+      const total = calculatePotAmount(room);
       const visualPots = getVisualPots(room);
       const sections = visualPots.map((pot, index) => ({
-        title: visualPots.length > 1 ? `${pot.label || `Side ${index + 1}`} Pot` : "Main Pot",
+        title: visualPots.length > 1 ? `${pot.label || `Side ${index}`} Pot` : "Main Pot",
         amount: pot.amount,
       }));
-
-      const total = calculatePotAmount(room);
       if (sections.length === 0) {
         sections.push({ title: "Main Pot", amount: total });
       }
 
-      openChipDetailModal("Pot Breakdown", sections);
+      // Who put in what this hand (includes anyone removed mid-hand, since their
+      // chips stay in the pot).
+      const contributions = (currentRoom?.players || [])
+        .filter((p) => p.totalContribution > 0)
+        .sort((a, b) => b.totalContribution - a.totalContribution)
+        .map((p) => `<div class="pot-contrib-row"><span>${escapeHtml(p.displayName)}</span><strong>${p.totalContribution}</strong></div>`)
+        .join("");
+
+      openChipDetailModal("Pot Breakdown", sections, contributions
+        ? `<section class="chip-breakdown-section"><h4>Put in this hand</h4>${contributions}</section>`
+        : "");
     };
   }
 }
@@ -1137,6 +1212,24 @@ function renderActions(room, playerId) {
     return;
   }
 
+  if (room.awaitingDeal) {
+    raiseMode = false;
+    const what = { flop: "Flop", turn: "Turn", river: "River" }[room.street] || "Cards";
+    const count = { flop: "3 cards", turn: "1 card", river: "1 card" }[room.street] || "cards";
+    if (isHost) {
+      actionsContainer.innerHTML = `<button id="confirm-deal-button" class="action deal-confirm">${what} dealt (${count}) — start betting</button>`;
+      document.querySelector("#confirm-deal-button").addEventListener("click", () => {
+        if (!currentRoom || !currentPlayerId) {
+          return;
+        }
+        emit({ type: "confirm_deal", roomId: currentRoom.id, actorPlayerId: currentPlayerId });
+      });
+    } else {
+      actionsContainer.innerHTML = `<p class="deal-wait">Waiting for the host to deal the ${what.toLowerCase()}…</p>`;
+    }
+    return;
+  }
+
   if (me && !me.inHand) {
     actionsContainer.innerHTML = "<p style=\"color: var(--muted); font-size: 0.9rem; margin: 0;\">You are out of this hand.</p>";
     raiseMode = false;
@@ -1309,7 +1402,7 @@ function renderRoom(incomingRoom) {
   renderBlindScheduleSummary(room);
 
   const acting = room.players.find((p) => p.id === room.actingPlayerId);
-  actingPlayerEl.textContent = acting ? acting.displayName : "-";
+  actingPlayerEl.textContent = acting ? acting.displayName : room.status === "in_hand" && room.awaitingDeal ? "Dealing…" : "-";
 
   const me = room.players.find((p) => p.id === currentPlayerId);
   yourStackEl.textContent = me ? String(me.stack) : "-";
@@ -1541,46 +1634,10 @@ function renderPotTitleLabel(room) {
   if (!potTitleLabelEl) {
     return;
   }
-
-  const hasResolvedPayout = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.length > 0;
-  if (!hasResolvedPayout) {
-    potTitleLabelEl.textContent = "Table Pot";
-    return;
-  }
-
-  const winnerNames = room.payouts
-    .map((payout) => room.players.find((player) => player.id === payout.playerId)?.displayName || "Player")
-    .filter((name, index, arr) => arr.indexOf(name) === index);
-
-  const payoutLines = room.payouts.map((payout) => {
-    const name = room.players.find((player) => player.id === payout.playerId)?.displayName || "Player";
-    return { name, amount: payout.amount };
-  });
-
-  const merged = new Map();
-  payoutLines.forEach(({ name, amount }) => {
-    merged.set(name, (merged.get(name) || 0) + amount);
-  });
-
-  const mergedEntries = [...merged.entries()];
-
-  if (mergedEntries.length === 1) {
-    const [name, amount] = mergedEntries[0];
-    potTitleLabelEl.textContent = `${name} wins ${amount}!`;
-    return;
-  }
-
-  if (mergedEntries.length === 2) {
-    const [firstName, firstAmount] = mergedEntries[0];
-    const [secondName, secondAmount] = mergedEntries[1];
-    potTitleLabelEl.textContent = `${firstName} ${firstAmount} + ${secondName} ${secondAmount}`;
-    return;
-  }
-
-  potTitleLabelEl.textContent = mergedEntries
-    .slice(0, 3)
-    .map(([name, amount]) => `${name} ${amount}`)
-    .join(" • ");
+  // Fixed short label: the medallion is a static, fixed-size chip. Winners are
+  // announced in the payout banner instead of squeezing a sentence in here.
+  const paidOut = room.status === "waiting" && Array.isArray(room.payouts) && room.payouts.length > 0;
+  potTitleLabelEl.textContent = paidOut ? "Paid" : "Pot";
 }
 
 function renderPayoutBanner(room) {

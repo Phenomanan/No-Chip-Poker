@@ -59,6 +59,24 @@ re-themed most components without per-rule edits.
 - Chip-denomination SVG text moved from Space Grotesk to IBM Plex Mono; feedback text uses
   theme tokens instead of fixed hex.
 
+## Table nits (2026-10-02, follow-up)
+
+- **Deal gate**: after betting, the next street shows "Deal 3 community cards (the flop)" and
+  nobody is highlighted or asked to act. The host gets a gold "Flop dealt (3 cards) — start
+  betting" button in the action sheet; everyone else sees "Waiting for the host to deal…".
+  Same for turn (1) and river (1). Server rule: see `docs/architecture.md`.
+- **Static pot**: `#pot-visual-button` is a fixed 112px brass-rimmed chip, centered with
+  `inset: 0; margin: auto` instead of `transform` (the global `button:hover` transform used to
+  override the centering transform, which made it jump). Its label is always "Pot"/"Paid"
+  and it holds one fixed-height chip pile. Tap for the breakdown: chip denominations plus
+  what each player has put in this hand.
+- **Chip stacks in front of players**: each seat has a separate `.seat-chips` element (chip
+  pile + stack amount) placed 40% of the way from the seat toward the pot. Tap to see that
+  player's denomination breakdown. Seat and chip elements persist between renders, keyed by
+  player id, so they animate between slots.
+- **Dragging**: only the player's icon and name follow the pointer. Chip stacks stay in their
+  slots and slide to the new ones once the server confirms the new order.
+
 ## Verified (2026-10-02)
 
 Driven by hand in two separate browser profiles plus scripted bots, at 375px: drag to
@@ -71,12 +89,11 @@ Host Controls rows on phones, action sheet that did not dock to the bottom, nati
 
 ## Still open
 
-1. Pot medallion is a rounded rectangle, not the circular chip from the mockup.
-2. Day felt (light) variant has not been reviewed visually.
-3. Chat, action log, and players list only inherit the new tokens; some stack-meter and
+1. Day felt (light) variant has not been reviewed visually.
+2. Chat, action log, and players list only inherit the new tokens; some stack-meter and
    chip-preview styles still use pre-redesign colors.
-4. No rebuy or stack reset: when most players bust, the room has to be recreated.
-5. A player who is offline when their turn comes stalls the table until they return or the
+3. No rebuy or stack reset: when most players bust, the room has to be recreated.
+4. A player who is offline when their turn comes stalls the table until they return or the
    host removes them.
 
 ## Reviewing this branch

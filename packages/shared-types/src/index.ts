@@ -64,6 +64,9 @@ export interface RoomState {
   dealerSeat: number;
   smallBlindSeat: number;
   actingPlayerId: string | null;
+  // True right after the street advances: the host deals the new community cards and
+  // confirms before anyone is asked to act.
+  awaitingDeal: boolean;
   pots: Pot[];
   currentBet: number;
   blinds: BlindSettings;
@@ -138,6 +141,7 @@ export type ClientEvent =
   | { type: "toggle_blind_schedule"; roomId: string; actorPlayerId: string; enabled: boolean }
   | { type: "reset_blind_schedule"; roomId: string; actorPlayerId: string }
   | { type: "submit_action"; roomId: string; actorPlayerId: string; action: ActionKind; amount?: number }
+  | { type: "confirm_deal"; roomId: string; actorPlayerId: string }
   | { type: "transfer_host"; roomId: string; actorPlayerId: string; newHostPlayerId: string }
   | { type: "remove_player"; roomId: string; actorPlayerId: string; targetPlayerId: string }
   | { type: "reorder_seats"; roomId: string; actorPlayerId: string; orderedPlayerIds: string[] }
