@@ -137,7 +137,9 @@ h1, h2, h3, h4 {
   box-shadow: var(--shadow);
   margin-top: 1rem;
   position: relative;
-  overflow: hidden;
+  /* clip (not hidden): still trims the decorative glow, but doesn't turn the panel into
+     a scroll container, which would stop the action sheet from sticking to the viewport. */
+  overflow: clip;
 }
 
 .panel::after {
@@ -1841,5 +1843,193 @@ li.my-turn {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* In-app confirmation (replaces native confirm()): a centered card on desktop,
+   a bottom sheet on phones. */
+.confirm-content {
+  width: min(420px, 92vw);
+}
+
+.confirm-message {
+  color: var(--muted);
+  margin: 0 0 1.1rem;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}
+
+.confirm-actions button {
+  flex: 1;
+}
+
+#confirm-ok.danger {
+  background: var(--danger);
+  color: white;
+}
+
+@media (max-width: 640px) {
+  .modal.modal-sheet {
+    align-items: flex-end;
+  }
+
+  .modal.modal-sheet .modal-content {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 22px 22px 0 0;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.seat-drag-hint {
+  width: 100%;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+/* Winner picker: compact tappable rows with a normal-sized checkbox. (The global
+   input rules size every input like a text field, which made these huge.) */
+.showdown-winner-option {
+  cursor: pointer;
+  padding: 0.6rem 0.75rem;
+  font-weight: 600;
+}
+
+.showdown-winner-option input[type="checkbox"] {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.showdown-winner-option:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Phones: Fold / Call / Raise / All In sit in a 2x2 grid so the sticky action
+   sheet stays short instead of covering half the table. */
+@media (max-width: 640px) {
+  .actions-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .actions-row button {
+    margin-top: 0;
+  }
+}
+
+/* Small utility buttons must not inherit the phone rule that makes every button
+   full width (it squeezed player names out of the Host Controls rows). */
+.host-player-list .host-player-row button.host-player-remove-button,
+.settings-panel-head button.settings-close,
+.room-meta button.leave-room-button {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
+  min-height: 0;
+}
+
+.host-player-list .host-player-row button.host-player-remove-button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.settings-panel-head button.settings-close {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+}
+
+.room-meta button.leave-room-button {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+/* Inside a room the page title is just branding: shrink it so the table gets the
+   screen, and keep the four live numbers in a single row on phones. */
+body.in-room .hero .sub,
+body.in-room .hero .eyebrow {
+  display: none;
+}
+
+body.in-room .hero h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  body.in-room .shell {
+    margin-top: 0.6rem;
+  }
+
+  .stats-grid.stats-grid-compact {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.4rem;
+    margin: 0.7rem 0 0.6rem;
+  }
+
+  .stats-grid.stats-grid-compact article {
+    padding: 0.45rem 0.4rem;
+    text-align: center;
+  }
+
+  .stats-grid.stats-grid-compact p {
+    font-size: 0.6rem;
+    line-height: 1.15;
+  }
+
+  .stats-grid.stats-grid-compact strong,
+  .stats-grid.stats-grid-compact article.priority-stat strong {
+    font-size: 0.95rem;
+  }
+}
+
+/* The action sheet is the last thing in the room panel, so it pins to the bottom of
+   the screen while you scroll the table above it. Keep it slim when idle. */
+.control-grid {
+  bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .control-grid > .card:first-child > h3 {
+    display: none;
+  }
+
+  .control-grid > .card {
+    padding: 0.7rem;
+  }
+
+  button.hand-rankings-link {
+    min-height: 34px;
+    margin-top: 0.5rem;
+    padding: 0.35rem 0.6rem;
+  }
+
+  .control-grid {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .control-grid button.hand-rankings-link {
+    border: 0;
+    background: transparent;
+    min-height: 28px;
+    margin-top: 0.2rem;
+    font-size: 0.78rem;
   }
 }

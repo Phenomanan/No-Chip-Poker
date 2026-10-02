@@ -96,24 +96,6 @@
           </article>
         </div>
 
-        <div class="control-grid">
-          <div class="card">
-            <h3>Your Actions</h3>
-            <div id="actions-container"></div>
-            <button id="hand-rankings-button" class="hand-rankings-link">📖 Hand Rankings</button>
-          </div>
-          <div class="card showdown-main-card hidden" id="showdown-main-card">
-            <h3>Showdown Resolution</h3>
-            <p id="showdown-main-status" class="showdown-hint">Waiting for showdown...</p>
-            <div id="showdown-winners-list-main" class="showdown-winners-list"></div>
-            <div id="showdown-actions-main" class="showdown-actions hidden" style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem;">
-              <button id="select-all-winners-button-main" class="ghost">Select All</button>
-              <button id="clear-all-winners-button-main" class="ghost">Clear All</button>
-            </div>
-            <button id="declare-winners-button-main" class="ghost hidden">Declare Winner(s)</button>
-          </div>
-        </div>
-
         <div class="table-top-strip">
           <article class="blind-strip-card">
             <p>Blinds</p>
@@ -198,6 +180,24 @@
             </div>
           </div>
         </div>
+
+        <div class="control-grid">
+          <div class="card">
+            <h3>Your Actions</h3>
+            <div id="actions-container"></div>
+            <button id="hand-rankings-button" class="hand-rankings-link">📖 Hand Rankings</button>
+          </div>
+          <div class="card showdown-main-card hidden" id="showdown-main-card">
+            <h3>Showdown Resolution</h3>
+            <p id="showdown-main-status" class="showdown-hint">Waiting for showdown...</p>
+            <div id="showdown-winners-list-main" class="showdown-winners-list"></div>
+            <div id="showdown-actions-main" class="showdown-actions hidden" style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem;">
+              <button id="select-all-winners-button-main" class="ghost">Select All</button>
+              <button id="clear-all-winners-button-main" class="ghost">Clear All</button>
+            </div>
+            <button id="declare-winners-button-main" class="ghost hidden">Declare Winner(s)</button>
+          </div>
+        </div>
       </section>
 
       <p id="feedback" class="feedback"></p>
@@ -209,6 +209,17 @@
             <button id="close-rankings-button" class="modal-close-button" aria-label="Close">×</button>
           </div>
           <div id="hand-rankings-list"></div>
+        </div>
+      </div>
+
+      <div id="confirm-modal" class="modal modal-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class="modal-content confirm-content">
+          <h3 id="confirm-title">Are you sure?</h3>
+          <p id="confirm-message" class="confirm-message"></p>
+          <div class="confirm-actions">
+            <button id="confirm-cancel" class="action" type="button">Cancel</button>
+            <button id="confirm-ok" type="button">Confirm</button>
+          </div>
         </div>
       </div>
 

@@ -15,6 +15,10 @@ export interface Player {
   inHand: boolean;
   commitment: number;
   totalContribution: number;
+  // Set when the host removes a player mid-hand: their chips stay in the pot as
+  // dead money until the hand settles, then the player is dropped. Clients should
+  // not show these players.
+  pendingRemoval?: boolean;
 }
 
 export interface Pot {

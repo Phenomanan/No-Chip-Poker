@@ -112,6 +112,47 @@ const HAND_RANKINGS = [
   { rank: "High Card", description: "No combination; highest card plays", cards: ["A♣", "J♠", "8♥", "5♦", "2♣"] },
 ];
 
+// In-app replacement for window.confirm(): resolves true on Confirm, false on
+// Cancel, Escape, or a tap on the backdrop.
+function confirmDialog({ title = "Are you sure?", message = "", confirmLabel = "Confirm", danger = false } = {}) {
+  const modal = document.querySelector("#confirm-modal");
+  const okButton = document.querySelector("#confirm-ok");
+  const cancelButton = document.querySelector("#confirm-cancel");
+  if (!modal || !okButton || !cancelButton) {
+    return Promise.resolve(window.confirm(message || title));
+  }
+
+  document.querySelector("#confirm-title").textContent = title;
+  document.querySelector("#confirm-message").textContent = message;
+  okButton.textContent = confirmLabel;
+  okButton.classList.toggle("danger", danger);
+  modal.classList.remove("hidden");
+  cancelButton.focus();
+
+  return new Promise((resolve) => {
+    const finish = (result) => {
+      modal.classList.add("hidden");
+      okButton.removeEventListener("click", onOk);
+      cancelButton.removeEventListener("click", onCancel);
+      modal.removeEventListener("click", onBackdrop);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onBackdrop = (event) => {
+      if (event.target === modal) finish(false);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") finish(false);
+    };
+    okButton.addEventListener("click", onOk);
+    cancelButton.addEventListener("click", onCancel);
+    modal.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
 function setFeedback(message, isError) {
   feedback.style.color = isError ? "var(--danger)" : "var(--safe-ink)";
   feedback.textContent = message;
@@ -420,6 +461,7 @@ function markRoomAsMostRecent(roomCode) {
 }
 
 function showRoomPanel(room) {
+  document.body.classList.add("in-room");
   authPanel.classList.add("hidden");
   roomPanel.classList.remove("hidden");
   renderRoom(room);
@@ -452,6 +494,7 @@ function showAuthPanel() {
   currentPlayerId = "";
   currentSessionId = "";
   raiseMode = false;
+  document.body.classList.remove("in-room");
   authPanel.classList.remove("hidden");
   roomPanel.classList.add("hidden");
 }
@@ -717,7 +760,7 @@ function renderTableTurnVisual(room) {
   }
 
   const isHost = currentPlayerId === room.hostPlayerId;
-  const canDragReorder = isHost && room.status !== "in_hand";
+  const canDragReorder = isHost && room.status === "waiting";
 
   turnOrderTrackEl.innerHTML = players
     .map((player, index) => {
@@ -764,6 +807,7 @@ function renderTableTurnVisual(room) {
     <span class="legend-pill called">Called/Checked</span>
     <span class="legend-pill betting">To Call</span>
     <span class="legend-pill folded">Folded</span>
+    ${canDragReorder && players.length > 1 ? '<span class="seat-drag-hint">Drag a seat to change the table order</span>' : ""}
   `;
 
   if (canDragReorder) {
@@ -787,7 +831,11 @@ function startTableSeatDrag(event, seatedPlayers) {
 
   event.preventDefault();
   seatEl.classList.add("dragging");
-  seatEl.setPointerCapture(event.pointerId);
+  try {
+    seatEl.setPointerCapture(event.pointerId);
+  } catch (error) {
+    // Capture is only a nicety; the window-level listeners below carry the drag.
+  }
 
   const draggedId = seatEl.getAttribute("data-player-id");
   const order = seatedPlayers.map((p) => p.id);
@@ -808,9 +856,9 @@ function startTableSeatDrag(event, seatedPlayers) {
 
   const onUp = (upEvent) => {
     seatEl.classList.remove("dragging");
-    seatEl.removeEventListener("pointermove", onMove);
-    seatEl.removeEventListener("pointerup", onUp);
-    seatEl.removeEventListener("pointercancel", onUp);
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
 
     const p = pointFromEvent(upEvent);
     let best = 0;
@@ -839,9 +887,9 @@ function startTableSeatDrag(event, seatedPlayers) {
     });
   };
 
-  seatEl.addEventListener("pointermove", onMove);
-  seatEl.addEventListener("pointerup", onUp);
-  seatEl.addEventListener("pointercancel", onUp);
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 
 function bindStackAndPotBreakdownHandlers(room) {
@@ -906,6 +954,16 @@ function renderStackPreview(stack, densityFactor = 1, emptyLabel = "busted", emp
     .join("");
 }
 
+// Seat numbers can have gaps after players are removed; people see (and the table
+// shows) their position in the seating order instead.
+function seatPosition(room, player) {
+  if (player.role === "spectator") {
+    return null;
+  }
+  const seated = room.players.filter((p) => p.role !== "spectator").sort((a, b) => a.seat - b.seat);
+  return seated.findIndex((p) => p.id === player.id) + 1;
+}
+
 function formatPlayerRow(room, player, topStack) {
   const isActive = player.id === room.actingPlayerId ? "active" : "";
   const isMe = player.id === currentPlayerId;
@@ -937,7 +995,7 @@ function formatPlayerRow(room, player, topStack) {
           <strong>${player.displayName}${meLabel}</strong>
           <div class="player-meta-line">
             <span>${player.role}</span>
-            <span>seat ${player.seat}</span>
+            ${seatPosition(room, player) ? `<span>seat ${seatPosition(room, player)}</span>` : ""}
             <span class="${connected === "online" ? "status-online" : "status-offline"}">${connected}</span>
           </div>
         </div>
@@ -1230,7 +1288,10 @@ function updateTabTitle(room, me) {
   document.title = isMyTurn ? `● Your turn — ${DEFAULT_TAB_TITLE}` : DEFAULT_TAB_TITLE;
 }
 
-function renderRoom(room) {
+function renderRoom(incomingRoom) {
+  // Players removed mid-hand stay in the server's roster only so their chips remain in
+  // the pot; they should not appear anywhere in the UI.
+  const room = { ...incomingRoom, players: incomingRoom.players.filter((p) => !p.pendingRemoval) };
   currentRoom = room;
   roomCodeEl.textContent = room.code;
   roomNameEl.textContent = room.name;
@@ -1420,7 +1481,7 @@ function setAllWinnerCheckboxes(listElement, checked) {
   });
 }
 
-function submitDeclaredWinnersFrom(listElement) {
+async function submitDeclaredWinnersFrom(listElement) {
   if (!currentRoom || !currentPlayerId) {
     return;
   }
@@ -1458,7 +1519,12 @@ function submitDeclaredWinnersFrom(listElement) {
     return winner ? winner.displayName : "Unknown";
   }).join(", ");
 
-  if (!confirm(`Award pot to ${winnerNames}? This cannot be undone.`)) {
+  const confirmed = await confirmDialog({
+    title: "Pay out the pot?",
+    message: `Award the pot to ${winnerNames}. This cannot be undone.`,
+    confirmLabel: "Pay out",
+  });
+  if (!confirmed || !currentRoom) {
     return;
   }
 
@@ -1574,10 +1640,10 @@ function renderHostPlayerList(room, isHost) {
     return;
   }
 
-  const reorderLocked = room.status === "in_hand";
+  const reorderLocked = room.status !== "waiting";
   if (hostPlayerListHintEl) {
     hostPlayerListHintEl.textContent = reorderLocked
-      ? "Table order is locked while a hand is in progress."
+      ? "Table order is locked until this hand is paid out."
       : "Drag a row by its handle to set seat order. Removing a player takes effect immediately.";
   }
 
@@ -1604,17 +1670,24 @@ function renderHostPlayerList(room, isHost) {
   };
 
   hostPlayerListEl.innerHTML =
-    seatedPlayers.map((p) => rowHtml(p, `#${p.seat}`)).join("") + spectators.map((p) => rowHtml(p, "spec")).join("");
+    seatedPlayers.map((p, index) => rowHtml(p, `#${index + 1}`)).join("") + spectators.map((p) => rowHtml(p, "spec")).join("");
 
   hostPlayerListEl.querySelectorAll("[data-remove-player-id]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const targetId = button.getAttribute("data-remove-player-id");
       const target = room.players.find((p) => p.id === targetId);
       if (!currentRoom || !currentPlayerId || !target) {
         return;
       }
 
-      if (!window.confirm(`Remove ${target.displayName} from the room? This cannot be undone.`)) {
+      const handNote = room.status === "waiting" ? "" : " Their chips already in the pot stay in the pot.";
+      const confirmed = await confirmDialog({
+        title: `Remove ${target.displayName}?`,
+        message: `They'll be taken off the table and can't rejoin with their old seat.${handNote}`,
+        confirmLabel: "Remove",
+        danger: true,
+      });
+      if (!confirmed) {
         return;
       }
 
@@ -1781,12 +1854,18 @@ rejoinRoomButton.addEventListener("click", () => {
 });
 
 if (leaveRoomButton) {
-  leaveRoomButton.addEventListener("click", () => {
+  leaveRoomButton.addEventListener("click", async () => {
     if (!currentRoom) {
       return;
     }
 
-    if (!window.confirm("Leave this room? You'll need the room code to rejoin.")) {
+    const confirmed = await confirmDialog({
+      title: "Leave this room?",
+      message: "You'll need the room code to rejoin.",
+      confirmLabel: "Leave",
+      danger: true,
+    });
+    if (!confirmed || !currentRoom) {
       return;
     }
 

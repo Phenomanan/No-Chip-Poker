@@ -38,3 +38,9 @@ jobs:
 
       - name: Run four-player soak test
         run: npm run test:soak
+
+      - name: Run kick and reorder rules tests
+        run: npm run test:kick-reorder
+
+      - name: Run randomized play (fuzz) test
+        run: FUZZ_TABLES=3 FUZZ_HANDS=8 npm run test:fuzz

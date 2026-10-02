@@ -1,7 +1,7 @@
 # UI redesign: felt and gold
 
 Status as of 2026-10-02. This records the direction agreed with the project owner,
-what has been implemented on branch `felt-and-gold-redesign`, and what is still open.
+what has been implemented, and what is still open.
 It supersedes the visual direction in `docs/ux-ui-improvement-plan.md`.
 
 ## Why
@@ -59,22 +59,25 @@ re-themed most components without per-rule edits.
 - Chip-denomination SVG text moved from Space Grotesk to IBM Plex Mono; feedback text uses
   theme tokens instead of fixed hex.
 
-## Not done yet
+## Verified (2026-10-02)
 
-1. **Live verification of the new table interactions.** Static rendering was checked at
-   375px with a 2-player room (auth screen, header, table oval). Drag-to-reorder, the
-   acting glow, and the 3+ seat layout were not yet exercised in a browser. Test with
-   separate browser profiles (not two tabs of one profile: tabs share `localStorage` and
-   the session auto-rejoin will evict one of them, see `architecture.md`).
-2. **Pot medallion sizing.** It is a rounded rectangle, not the circular chip in the
-   mockup, because real pots render variable-width side-pile stacks. Needs a decision.
-3. **Secondary panels** (chat, action log, players list, blind vote and schedule forms,
-   modals) only inherit the new colors and fonts. No bespoke layout pass. The mockup's
-   bottom-sheet pattern for Table Settings and modals is not built.
-4. **Native `confirm()` dialogs** (leave room, remove player, declare winners) are still
-   browser-native. Replacing them with in-app sheets would complete the app feel.
-5. **Day felt** variant has not been reviewed visually at all.
-6. Some stack-meter and chip-preview styles still carry pre-redesign colors.
+Driven by hand in two separate browser profiles plus scripted bots, at 375px: drag to
+reorder on the table and in the Host Controls list, host kick (between hands and mid-hand),
+raise controls, per-pot winner picker, split and side-pot payouts, in-app confirm sheets,
+blind vote/schedule/update, transfer host, chat, modals, spectator, leave, and refresh
+mid-hand. Fixed along the way: oversized winner checkboxes, player names squeezed out of
+Host Controls rows on phones, action sheet that did not dock to the bottom, native
+`confirm()` popups (now an in-app sheet), seat numbers showing gaps after removals.
+
+## Still open
+
+1. Pot medallion is a rounded rectangle, not the circular chip from the mockup.
+2. Day felt (light) variant has not been reviewed visually.
+3. Chat, action log, and players list only inherit the new tokens; some stack-meter and
+   chip-preview styles still use pre-redesign colors.
+4. No rebuy or stack reset: when most players bust, the room has to be recreated.
+5. A player who is offline when their turn comes stalls the table until they return or the
+   host removes them.
 
 ## Reviewing this branch
 
