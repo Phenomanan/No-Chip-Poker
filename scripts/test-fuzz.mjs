@@ -14,6 +14,7 @@ const PORT = Number(process.env.FUZZ_PORT || 3061);
 const BASE_SEED = Number(process.env.FUZZ_SEED || 20261002);
 const TABLES = Number(process.env.FUZZ_TABLES || 5);
 const HANDS_PER_TABLE = Number(process.env.FUZZ_HANDS || 10);
+const MAX_PLAYERS = Number(process.env.FUZZ_MAX_PLAYERS || 6);
 const { check, finish } = makeChecker();
 
 function rng(seed) {
@@ -38,7 +39,7 @@ async function playTable(server, seed) {
   const pick = (arr) => arr[Math.floor(rand() * arr.length)];
   const int = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
 
-  const playerCount = int(2, 6);
+  const playerCount = int(2, MAX_PLAYERS);
   const startingStack = pick([150, 400, 1000, 1500]);
   const bigBlind = pick([10, 20, 50]);
   const names = ["Host", ...Array.from({ length: playerCount - 1 }, (_, i) => `P${i + 2}`)];

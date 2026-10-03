@@ -167,4 +167,19 @@ the highest commitment *and* acted this street. The second clause gives the big 
 preflop option. Tests that need a short stack must create it through play (a priming hand),
 because every player now starts with the same configured stack.
 
-The frontend has no automated tests; UI changes are verified by hand in a browser.
+`scripts/test-rules-properties.mjs` generates tens of thousands of random tables and checks
+pot building against an independently written reference (min-difference formulation of side
+pots), payout totals/eligibility, and the "who acts next / is the street over" rules.
+
+`scripts/test-ui.mjs` is an opt-in end-to-end test (`npm run test:ui`; needs Playwright and Google
+Chrome, not run in CI). It opens one isolated Chrome context per player at phone size and
+drives the real page: forms, Fold/Call/Raise taps (including deliberately illegal raises), the
+host's cards-dealt button, winner pickers, dragging seats, kicking, refreshing. Every screen is
+compared against the server's own `room_state` broadcasts (read off the WebSocket): seat order,
+chip amounts, pot, whose turn, which buttons exist. It also asserts layout (no horizontal scroll,
+chip stacks clear of the pot and players, at 2-8 players and widths 320-768px in both themes),
+independently recomputes payouts, and fails on any console error. Env: `UI_TABLES`, `UI_HANDS`,
+`UI_SEED`, `UI_ONLY=layout,flow,play`, `UI_HEADED=1`. The fuzz test also takes
+`FUZZ_MAX_PLAYERS` (default 6).
+
+UI changes are otherwise verified by hand in a browser.

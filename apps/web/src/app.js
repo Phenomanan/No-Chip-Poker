@@ -763,7 +763,7 @@ function chipSlotPosition(index, total) {
   // sits under the pot or under its player's icon/name.
   const angle = (-90 + index * (360 / total)) * (Math.PI / 180);
   return {
-    left: 50 + 27 * Math.cos(angle),
+    left: 50 + 28.5 * Math.cos(angle),
     top: 50 + 29.5 * Math.sin(angle),
   };
 }
@@ -909,7 +909,7 @@ function renderTableTurnVisual(room) {
     chipsEl.className = `seat-chips${isFolded ? " folded" : ""}${player.stack <= 0 ? " empty" : ""}${player.id === stackPeekId ? " show-amount" : ""}`;
     chipsEl.setAttribute("aria-label", `${player.displayName}'s chip stack: ${player.stack}. Tap to show the amount.`);
     chipsEl.innerHTML = `
-      <span class="seat-chips-pile">${renderChipPile(player.stack)}</span>
+      <span class="seat-chips-pile">${renderChipPile(player.stack, 2)}</span>
       <span class="seat-chips-amount">${player.stack}</span>
     `;
     placeAt(chipsEl, chipSlotPosition(index, players.length));
@@ -1530,6 +1530,10 @@ function renderRoom(incomingRoom) {
   if (showdownMainCard) {
     showdownMainCard.classList.toggle("hidden", !canDeclareShowdown);
   }
+  // Everyone can see who is contesting the pot, but only the host's picks count.
+  showdownWinnersListMain.querySelectorAll("input[type='checkbox']").forEach((input) => {
+    if (!isHost) input.disabled = true;
+  });
 
   if (showdownMainStatus) {
     showdownMainStatus.textContent = canDeclareShowdown
