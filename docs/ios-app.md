@@ -49,11 +49,12 @@ npm run test:web       # browser smoke test of the bundle (needs Playwright + Ch
 - iPhone only (`TARGETED_DEVICE_FAMILY = 1`, so no iPad screenshots), portrait only, iOS 16+.
 - `ITSAppUsesNonExemptEncryption = false` (HTTPS only, no custom crypto).
 - Real icon (1024px, no alpha) and splash, generated from `assets/*.svg`.
-- Placeholder bundle id `com.nochippoker.app` and version 1.0 (1). **Change the bundle id** in
-  `capacitor.config.json` and in Xcode once your Apple account exists (it must be unique to you).
+- Bundle id `com.phenomanan.nochippoker` (chosen with the owner; it can never change once the App Store Connect
+  record exists) and version 1.0 (1). It is set in `capacitor.config.json` and the Xcode project; register the
+  same identifier in the Apple Developer portal after enrolling.
 
 ## Next steps (need you)
-1. Enroll in the Apple Developer Program; install Xcode; pick the real bundle id.
+1. Enroll in the Apple Developer Program (Xcode is installed; the bundle id is decided).
 2. Backend: always-on hosting with a persistent disk, add the app origin to `CORS_ORIGINS`.
 3. In Xcode: sign with your team, run on the Simulator and a real iPhone, then upload to TestFlight.
 4. Push notifications, practice bots, chat report/block, privacy policy and App Store listing (see the plan:
