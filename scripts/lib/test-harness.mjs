@@ -166,6 +166,10 @@ export class Table {
     return this.latest;
   }
 
+  me(name) {
+    return this.state.players.find((x) => x.id === this.id(name));
+  }
+
   seatOf(name) {
     return this.state.players.find((x) => x.id === this.id(name))?.seat;
   }

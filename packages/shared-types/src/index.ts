@@ -19,6 +19,8 @@ export interface Player {
   // dead money until the hand settles, then the player is dropped. Clients should
   // not show these players.
   pendingRemoval?: boolean;
+  // Practice-table player run by the server (acts on a timer). Never the host.
+  isBot?: boolean;
 }
 
 export interface Pot {
@@ -79,6 +81,8 @@ export interface RoomState {
   messages: ChatMessage[];
   blindVote: BlindVoteState | null;
   blindSchedule: BlindScheduleState;
+  // Players the host has muted: their chat messages are refused.
+  mutedPlayerIds: string[];
   updatedAt: number;
 }
 
@@ -127,7 +131,8 @@ export type ServerEvent =
   | { type: "room_created"; room: RoomState; sessionId: string; playerId: string }
   | { type: "joined_room"; room: RoomState; sessionId: string; playerId: string }
   | { type: "rejoined_room"; room: RoomState; playerId: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "notice"; message: string };
 
 export type ClientEvent =
   | { type: "create_room"; payload: CreateRoomInput }
@@ -146,6 +151,12 @@ export type ClientEvent =
   | { type: "remove_player"; roomId: string; actorPlayerId: string; targetPlayerId: string }
   | { type: "reorder_seats"; roomId: string; actorPlayerId: string; orderedPlayerIds: string[] }
   | { type: "send_message"; roomId: string; playerId: string; text: string; clientMessageId?: string }
+  | { type: "add_bots"; roomId: string; actorPlayerId: string; count: number }
+  | { type: "report_message"; roomId: string; actorPlayerId: string; messageId: string; reason?: string }
+  | { type: "mute_player"; roomId: string; actorPlayerId: string; targetPlayerId: string; muted: boolean }
+  | { type: "register_push_token"; roomId: string; actorPlayerId: string; token: string; platform: "ios" }
+  | { type: "unregister_push_token"; roomId: string; actorPlayerId: string }
+  | { type: "app_state"; roomId: string; actorPlayerId: string; active: boolean }
   | {
       type: "declare_winners";
       roomId: string;
