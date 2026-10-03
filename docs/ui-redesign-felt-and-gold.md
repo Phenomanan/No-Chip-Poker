@@ -71,7 +71,7 @@ re-themed most components without per-rule edits.
   and it holds one fixed-height chip pile. Tap for the breakdown: chip denominations plus
   what each player has put in this hand.
 - **Chip stacks in front of players**: each seat has a separate `.seat-chips` element (chip
-  pile only) on a ring between the seats and the pot (`chipSlotPosition`), so stacks clear both
+  pile only, at most two towers) on a ring between the seats and the pot (`chipSlotPosition`), so stacks clear both
   the pot medallion and the players' icons/names (seat boxes are click-through). The amount is
   hidden until you tap a stack: one tap pops the number up for ~3s, a second tap opens that
   player's denomination breakdown. Seat and chip elements persist between renders, keyed by
