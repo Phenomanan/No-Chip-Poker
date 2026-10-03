@@ -108,6 +108,12 @@ try {
       check("only the host can add practice players", !r.ok);
       r = await t.send("Host", { type: "add_bots", roomId: t.roomId, actorPlayerId: t.id("Host"), count: 3 });
       check("host adds 3 practice players", r.ok && t.state.players.filter((p) => p.isBot).length === 3);
+      const greeting = t.state.messages.find((m) => t.state.players.find((p) => p.id === m.playerId)?.isBot);
+      check("a practice player posts a welcome message (something to report/block)", Boolean(greeting) && /practice table/i.test(greeting.text));
+      const rep = [];
+      t.p("Host").socket.on("event", (e) => e.type === "notice" && rep.push(e));
+      await emitRaw(t, "Host", { type: "report_message", roomId: t.roomId, actorPlayerId: t.id("Host"), messageId: greeting.id, reason: "test" });
+      check("the welcome message can be reported", rep.length === 1);
       check("bots start with the room's stack and are connected", t.state.players.filter((p) => p.isBot).every((p) => p.stack === t.state.startingStack && p.connected));
       r = await t.send("Host", { type: "add_bots", roomId: t.roomId, actorPlayerId: t.id("Host"), count: 9 });
       check("at most 5 practice players per room", t.state.players.filter((p) => p.isBot).length === 5);

@@ -467,6 +467,19 @@ function addBots(room: RoomState, count: number): Player[] {
     playerIdToRoomId.set(bot.id, room.id);
     added.push(bot);
   }
+
+  // A friendly first message also gives a solo tester (and App Review) something to
+  // try the report / block / mute tools on.
+  const greeter = added[0];
+  if (greeter && !room.messages.some((m) => room.players.find((p) => p.id === m.playerId)?.isBot)) {
+    room.messages.push({
+      id: createId(),
+      playerId: greeter.id,
+      playerName: greeter.displayName,
+      text: "Welcome to the practice table! Tap the ... next to a message to report or block it.",
+      at: Date.now(),
+    });
+  }
   return added;
 }
 

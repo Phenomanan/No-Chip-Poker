@@ -58,7 +58,11 @@ check("stray web files (npm/npx shims) are not copied", ![...bundle.keys()].some
 const bad = [];
 for (const file of ["index.html", "src/bootstrap.js", "src/native.js", "src/native.css", "src/theme.js", "src/styles.css"]) {
   const text = await readFile(path.join(out, file), "utf8");
-  for (const m of text.matchAll(/https?:\/\/[^\s"')]+/g)) bad.push(`${file}: ${m[0]}`);
+  for (const m of text.matchAll(/https?:\/\/[^\s"')`]+/g)) {
+    // Links to the privacy/terms/support pages are navigations, not downloaded resources.
+    if (/^https:\/\/phenomanan\.github\.io\/No-Chip-Poker\/legal/.test(m[0])) continue;
+    bad.push(`${file}: ${m[0]}`);
+  }
 }
 check("no external URLs in the shell, styles or scripts", bad.length === 0, bad.slice(0, 5).join(" | "));
 const appUrls = [...(await readFile(path.join(out, "src/app.js"), "utf8")).matchAll(/https?:\/\/[^\s"'`)]+/g)].map((m) => m[0]);

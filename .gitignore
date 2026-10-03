@@ -6,3 +6,4 @@ dist/
 coverage/
 data/
 apps/ios/www/
+_site/
