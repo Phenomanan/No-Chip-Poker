@@ -1,0 +1,29 @@
+{
+  "name": "@no-chip/ios",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "iOS app shell (Capacitor) for No-Chip Poker. Kept separate from apps/web, which it never modifies.",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "sync": "node scripts/build-web.mjs && cap sync ios",
+    "open": "cap open ios",
+    "test:build": "node scripts/test-ios-build.mjs",
+    "test:web": "node scripts/test-ios-web.mjs"
+  },
+  "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.3",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}
