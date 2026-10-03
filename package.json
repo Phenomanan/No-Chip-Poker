@@ -12,6 +12,7 @@
     "test:session-handling": "npm run build:server && node scripts/test-session-handling.mjs",
     "test:soak": "npm run build:server && node scripts/test-four-player-soak.mjs",
     "test": "npm run build:server && node scripts/test-rules-engine.mjs && node scripts/test-rules-properties.mjs && node scripts/test-pot-regression.mjs && node scripts/test-admin-controls.mjs && node scripts/test-session-handling.mjs && node scripts/test-kick-and-reorder.mjs && node scripts/test-deal-gate.mjs && node scripts/test-ios-server-features.mjs && node scripts/test-four-player-soak.mjs && FUZZ_TABLES=3 FUZZ_HANDS=8 node scripts/test-fuzz.mjs",
+    "test:pages": "node scripts/test-pages-build.mjs",
     "test:ios-build": "node apps/ios/scripts/test-ios-build.mjs",
     "test:properties": "npm run build:server && node scripts/test-rules-properties.mjs",
     "test:ui": "npm run build:server && node scripts/test-ui.mjs",

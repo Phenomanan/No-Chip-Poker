@@ -15,6 +15,17 @@ function loadScript(src) {
   });
 }
 
+// The splash screen stays up until the page has painted (launchAutoHide is off), so
+// there is no blank WebView flash; a timeout makes sure it can never get stuck.
+function hideSplash() {
+  try {
+    window.Capacitor?.Plugins?.SplashScreen?.hide?.();
+  } catch (error) {
+    // optional
+  }
+}
+setTimeout(hideSplash, 8000);
+
 async function start() {
   await loadScript("./vendor/socket.io.min.js");
 
@@ -28,6 +39,10 @@ async function start() {
 
   await loadScript("./src/native.js").catch(() => {});
   await import("./app.js");
+  requestAnimationFrame(() => requestAnimationFrame(hideSplash));
 }
 
-void start();
+start().catch((error) => {
+  console.error(error);
+  hideSplash();
+});

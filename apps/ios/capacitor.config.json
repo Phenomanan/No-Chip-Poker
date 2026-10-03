@@ -13,7 +13,14 @@
     "preferredContentMode": "mobile"
   },
   "plugins": {
-    "SplashScreen": { "launchAutoHide": true, "backgroundColor": "#0b1f17" },
-    "StatusBar": { "style": "DARK", "overlaysWebView": true }
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#0b1f17",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "overlaysWebView": true
+    }
   }
 }

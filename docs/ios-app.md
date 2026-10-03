@@ -13,7 +13,9 @@ apps/web/                 unchanged, deployed by .github/workflows/deploy-pages.
 apps/ios/
   overlay/                iOS-only files layered over a copy of apps/web
     bootstrap.js          replaces the web bootstrap: no CDN, loads the bundled Socket.IO client
-    native.js             haptics on your turn, keep-awake during a hand, reconnect on resume
+    native.js             Practice Table card, report/block/mute sheet on chat messages, push registration,
+                          background/foreground reporting, haptics on your turn, keep-awake during a hand,
+                          privacy/terms/support links, reconnect on resume
     native.css            bundled fonts, safe-area (notch/home bar), no text selection/rubber-banding
     fonts/ vendor/        Fraunces / Manrope / IBM Plex Mono (woff2), socket.io client
   scripts/build-web.mjs   copies apps/web -> apps/ios/www (read-only on apps/web) and applies the overlay
@@ -44,6 +46,20 @@ npm run open           # opens Xcode (needs Xcode installed)
 npm run test:build     # fast guard (also runs in CI via the root `npm run test:ios-build`)
 npm run test:web       # browser smoke test of the bundle (needs Playwright + Chrome)
 ```
+
+## What the overlay adds (iOS only; the web app has none of this)
+- **Practice Table**: a card on the front screen creates a room and asks the server for 3 practice players, so one
+  person (or App Review) can play a whole hand alone.
+- **Chat safety**: every other player's message gets a "..." button with *Report*, *Block* (hidden on this device;
+  "Blocked players" link to undo) and, for the host, *Mute*. Reports are logged by the server.
+- **Push**: asks for notification permission the first time you enter a room, registers the device token with the
+  server, and tells it when the app goes to the background/foreground. The server sends the push (see `docs/architecture.md`).
+- **Splash screen** stays until the page has painted (no blank flash), with an 8-second safety timeout.
+- Links to the privacy policy, terms and support page (hosted under `/legal/` on the GitHub Pages site).
+- Verified on the iOS 27 Simulator: haptics, keep-awake, push permission state, splash, app, preferences, share and
+  status-bar plugins are all reachable from the page, and a practice hand runs end to end against the live server.
+- `PrivacyInfo.xcprivacy` declares: no tracking; user content (chat) and device ID (push token) collected for app
+  functionality, not linked to identity; UserDefaults access.
 
 ## Configured for the App Store
 - iPhone only (`TARGETED_DEVICE_FAMILY = 1`, so no iPad screenshots), portrait only, iOS 16+.

@@ -28,10 +28,13 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Assemble site (web app unchanged + legal pages)
+        run: node scripts/build-pages.mjs
+
       - name: Upload static web artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/web
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
