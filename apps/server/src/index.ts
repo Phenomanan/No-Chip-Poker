@@ -23,6 +23,9 @@ import {
   validateBlinds,
   validateWinnerCoverage,
 } from "../../../packages/rules-engine/src/index.js";
+import { BOT_NAMES, MAX_BOTS_PER_ROOM, chooseBotMove } from "./bots.js";
+import { ChatRateLimiter, ReportLog, filterText, isDisplayNameAllowed } from "./moderation.js";
+import { ApnsClient, loadApnsConfigFromEnv } from "./push.js";
 import type {
   ActionEvent,
   BlindScheduleState,
@@ -119,6 +122,20 @@ const playerIdToRoomId = new Map<string, string>();
 const socketToPlayerId = new Map<string, string>();
 const roomStreetActionState = new Map<string, { street: RoomState["street"]; actedPlayerIds: Set<string> }>();
 
+// Practice-bot timers, push tokens and moderation helpers (all server-side only: never
+// part of the broadcast room state, so other players cannot see device tokens).
+const botTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pushTokens = new Map<string, string>();
+const playerAppActive = new Map<string, boolean>();
+const lastPushKey = new Map<string, string>();
+const chatLimiter = new ChatRateLimiter();
+const reportLog = new ReportLog();
+const apnsConfig = loadApnsConfigFromEnv();
+const apns = apnsConfig ? new ApnsClient(apnsConfig) : null;
+if (!apns) {
+  console.log("[push] APNs not configured (set APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID, APNS_KEY to enable push)");
+}
+
 const stateFilePath = process.env.STATE_FILE_PATH ?? path.resolve(process.cwd(), "data", "state.json");
 const roomTtlMs = Number(process.env.ROOM_TTL_MS ?? 1000 * 60 * 60 * 24);
 const roomCleanupIntervalMs = Number(process.env.ROOM_CLEANUP_INTERVAL_MS ?? 1000 * 60 * 5);
@@ -138,6 +155,7 @@ interface PersistedState {
   sessionToPlayerId: Array<[string, string]>;
   playerIdToRoomId: Array<[string, string]>;
   roomStreetActionState: Array<[string, PersistedActionState]>;
+  pushTokens?: Array<[string, string]>;
 }
 
 const DEFAULT_BLIND_LEVEL_DURATION_SECONDS = 15 * 60;
@@ -160,6 +178,7 @@ function createDefaultBlindSchedule(): BlindScheduleState {
 function normalizeRoomState(room: RoomState): RoomState {
   room.blindVote = room.blindVote ?? null;
   room.awaitingDeal = Boolean(room.awaitingDeal);
+  room.mutedPlayerIds = Array.isArray(room.mutedPlayerIds) ? room.mutedPlayerIds : [];
   // Older persisted snapshots may still have the retired "pending_ack" state
   // from the removed payout-acknowledgment step; treat anything but a known
   // value as idle (payouts are applied to stacks synchronously now, so there's
@@ -210,6 +229,7 @@ function serializeState(): PersistedState {
         actedPlayerIds: [...state.actedPlayerIds],
       },
     ]),
+    pushTokens: [...pushTokens.entries()],
   };
 }
 
@@ -237,6 +257,13 @@ function hydrateState(snapshot: PersistedState): void {
   snapshot.playerIdToRoomId.forEach(([playerId, roomId]) => {
     if (roomById.has(roomId)) {
       playerIdToRoomId.set(playerId, roomId);
+    }
+  });
+
+  pushTokens.clear();
+  (snapshot.pushTokens ?? []).forEach(([playerId, token]) => {
+    if (playerIdToRoomId.has(playerId)) {
+      pushTokens.set(playerId, token);
     }
   });
 
@@ -278,6 +305,7 @@ async function restoreStateFromDisk(): Promise<void> {
     }
 
     hydrateState(parsed);
+    roomById.forEach((room) => scheduleBotTurn(room));
     console.log(`[persist] Restored ${roomById.size} room(s) from ${stateFilePath}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -295,6 +323,13 @@ function removeRoom(roomId: string): void {
   roomById.delete(roomId);
   roomCodeToId.delete(room.code);
   roomStreetActionState.delete(roomId);
+  clearBotTimer(roomId);
+  lastPushKey.delete(roomId);
+  room.players.forEach((player) => {
+    pushTokens.delete(player.id);
+    playerAppActive.delete(player.id);
+    chatLimiter.forget(player.id);
+  });
 
   room.players.forEach((player) => {
     playerIdToRoomId.delete(player.id);
@@ -364,6 +399,119 @@ function emitRoomState(roomId: string): void {
   room.players.forEach(p => console.log(`  - ${p.displayName} (${p.id})`));
   io.to(roomId).emit("event", { type: "room_state", room });
   scheduleStatePersistence();
+  scheduleBotTurn(room);
+  notifyAwaitedPlayers(room);
+}
+
+
+// ---------------------------------------------------------------------------
+// Practice bots
+// ---------------------------------------------------------------------------
+function clearBotTimer(roomId: string): void {
+  const timer = botTimers.get(roomId);
+  if (timer) {
+    clearTimeout(timer);
+    botTimers.delete(roomId);
+  }
+}
+
+function botDelayMs(): number {
+  const base = Number(process.env.BOT_DELAY_MS ?? 900);
+  return base <= 0 ? 0 : base + Math.floor(Math.random() * base * 0.8);
+}
+
+// If it is a bot's turn, make it act after a short, human-looking pause.
+function scheduleBotTurn(room: RoomState): void {
+  const actingId = room.actingPlayerId;
+  const actor = actingId ? room.players.find((p) => p.id === actingId) : undefined;
+  if (!actor?.isBot || room.status !== "in_hand" || room.awaitingDeal || botTimers.has(room.id)) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    botTimers.delete(room.id);
+    const current = roomById.get(room.id);
+    if (!current || current.status !== "in_hand" || current.awaitingDeal || current.actingPlayerId !== actor.id) {
+      return;
+    }
+    const move = chooseBotMove(current, actor.id);
+    const result = applyPlayerAction(current, actor.id, move.action, move.amount);
+    if (!result.ok) {
+      console.log(`[bots] ${actor.displayName} could not ${move.action}: ${result.message}`);
+    }
+  }, botDelayMs());
+  botTimers.set(room.id, timer);
+}
+
+function addBots(room: RoomState, count: number): Player[] {
+  const existingBots = room.players.filter((p) => p.isBot).length;
+  const toAdd = Math.max(0, Math.min(Math.floor(count), MAX_BOTS_PER_ROOM - existingBots));
+  const added: Player[] = [];
+  for (let i = 0; i < toAdd; i += 1) {
+    const taken = new Set(room.players.map((p) => p.displayName));
+    const name = BOT_NAMES.find((candidate) => !taken.has(candidate)) ?? `Bot ${existingBots + i + 1}`;
+    const bot: Player = {
+      id: createId(),
+      displayName: name,
+      role: "player",
+      seat: nextSeat(room),
+      stack: room.startingStack,
+      connected: true,
+      joinedAt: Date.now(),
+      inHand: false,
+      commitment: 0,
+      totalContribution: 0,
+      isBot: true,
+    };
+    room.players.push(bot);
+    playerIdToRoomId.set(bot.id, room.id);
+    added.push(bot);
+  }
+  return added;
+}
+
+// ---------------------------------------------------------------------------
+// Push notifications ("it's your turn" while the app is in the background)
+// ---------------------------------------------------------------------------
+function isAway(player: Player): boolean {
+  return !player.connected || playerAppActive.get(player.id) === false;
+}
+
+function sendPushTo(player: Player, room: RoomState, title: string, body: string, key: string): void {
+  const token = pushTokens.get(player.id);
+  if (!apns || !token || player.isBot || lastPushKey.get(player.id) === key) {
+    return;
+  }
+  lastPushKey.set(player.id, key);
+  void apns.send(token, { title, body, roomCode: room.code }).then((result) => {
+    if (!result.ok) {
+      console.log(`[push] ${player.displayName}: ${result.status} ${result.reason ?? ""}`);
+      // Token no longer valid on Apple's side: forget it.
+      if (result.status === 410 || result.reason === "BadDeviceToken" || result.reason === "Unregistered") {
+        pushTokens.delete(player.id);
+        scheduleStatePersistence();
+      }
+    }
+  });
+}
+
+function notifyAwaitedPlayers(room: RoomState): void {
+  if (!apns || room.status !== "in_hand") {
+    return;
+  }
+
+  if (room.awaitingDeal) {
+    const host = room.players.find((p) => p.id === room.hostPlayerId);
+    if (host && isAway(host)) {
+      sendPushTo(host, room, room.name, `Deal the ${room.street} — the table is waiting.`, `${room.id}:deal:${room.street}:${room.actionLog.length}`);
+    }
+    return;
+  }
+
+  const actor = room.actingPlayerId ? room.players.find((p) => p.id === room.actingPlayerId) : undefined;
+  if (actor && isAway(actor)) {
+    sendPushTo(actor, room, room.name, "It's your turn.", `${room.id}:turn:${actor.id}:${room.street}:${room.actionLog.length}`);
+  }
 }
 
 function sanitizeRole(role: Role | undefined): Role {
@@ -525,6 +673,7 @@ function createRoom(input: CreateRoomInput, host: Player): RoomState {
     messages: [],
     blindVote: null,
     blindSchedule: createDefaultBlindSchedule(),
+    mutedPlayerIds: [],
     updatedAt: Date.now(),
   };
 }
@@ -656,7 +805,7 @@ function markDisconnected(playerId: string): void {
   }
 
   const player = room.players.find((p) => p.id === playerId);
-  if (!player) {
+  if (!player || player.isBot) {
     return;
   }
 
@@ -747,8 +896,75 @@ function rejoinRoom(socketId: string, payload: RejoinInput): { room: RoomState; 
   return { room, player };
 }
 
+// Validates and applies one betting action, advances the hand, and broadcasts. Used by
+// real players (submit_action) and by practice bots.
+function applyPlayerAction(
+  room: RoomState,
+  actorPlayerId: string,
+  action: ActionEvent["action"],
+  amount?: number
+): { ok: boolean; message?: string } {
+  const validation = validateAction(room, actorPlayerId, action, amount);
+  if (!validation.ok) {
+    return { ok: false, message: validation.message ?? "Invalid action." };
+  }
+
+  const currentPlayer = room.players.find((p) => p.id === actorPlayerId);
+  if (!currentPlayer) {
+    return { ok: false, message: "Player not found." };
+  }
+
+  appendAction(room, actorPlayerId, action, amount);
+  markPlayerActedThisStreet(room, actorPlayerId);
+
+  if (action === "fold") {
+    currentPlayer.inHand = false;
+  } else if (action === "call") {
+    const callAmount = room.currentBet - currentPlayer.commitment;
+    currentPlayer.stack -= callAmount;
+    currentPlayer.commitment = room.currentBet;
+    currentPlayer.totalContribution += callAmount;
+  } else if (action === "raise" && typeof amount === "number") {
+    const addAmount = amount - currentPlayer.commitment;
+    currentPlayer.stack -= addAmount;
+    currentPlayer.commitment = amount;
+    currentPlayer.totalContribution += addAmount;
+    room.currentBet = amount;
+  } else if (action === "all_in") {
+    const allInAmount = currentPlayer.stack;
+    currentPlayer.commitment += allInAmount;
+    currentPlayer.totalContribution += allInAmount;
+    currentPlayer.stack = 0;
+    room.currentBet = Math.max(room.currentBet, currentPlayer.commitment);
+  }
+
+  room.pots = calculatePots(room);
+
+  const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator").sort((a, b) => a.seat - b.seat);
+  if (playersInHand.length === 1) {
+    settleHand(room, [playersInHand[0].id]);
+  } else if (shouldSettleHand(room, currentActedPlayerIds(room))) {
+    advanceStreetOrShowdown(room);
+  } else {
+    room.actingPlayerId = findNextActingPlayer(room, actorPlayerId, currentActedPlayerIds(room));
+  }
+
+  emitRoomState(room.id);
+  return { ok: true };
+}
+
 io.on("connection", (socket) => {
   socket.on("event", (event) => {
+    // Every event that acts as a player must come from that player's own socket.
+    // (Player ids are visible to everyone in the room, so without this check anyone
+    // could send host-only events such as remove_player or declare_winners.)
+    const claimedPlayerId =
+      "actorPlayerId" in event ? event.actorPlayerId : "playerId" in event ? event.playerId : undefined;
+    if (claimedPlayerId !== undefined && socketToPlayerId.get(socket.id) !== claimedPlayerId) {
+      socket.emit("event", { type: "error", message: "You are not signed in as that player. Rejoin the room." });
+      return;
+    }
+
     if (event.type === "create_room") {
       const payload = event.payload;
       const blindValidation = validateBlinds(payload.smallBlind, payload.bigBlind);
@@ -759,6 +975,11 @@ io.on("connection", (socket) => {
 
       if (!payload.displayName.trim()) {
         socket.emit("event", { type: "error", message: "Display name is required." });
+        return;
+      }
+
+      if (!isDisplayNameAllowed(payload.displayName)) {
+        socket.emit("event", { type: "error", message: "Please choose a different display name." });
         return;
       }
 
@@ -780,6 +1001,11 @@ io.on("connection", (socket) => {
     }
 
     if (event.type === "join_room") {
+      if (!event.payload.sessionId && !isDisplayNameAllowed(event.payload.displayName ?? "")) {
+        socket.emit("event", { type: "error", message: "Please choose a different display name." });
+        return;
+      }
+
       const result = joinRoom(socket.id, event.payload);
       if ("error" in result) {
         socket.emit("event", { type: "error", message: result.error });
@@ -1142,6 +1368,11 @@ io.on("connection", (socket) => {
         return;
       }
 
+      if (newHost.isBot) {
+        socket.emit("event", { type: "error", message: "A practice player cannot be the host." });
+        return;
+      }
+
       room.hostPlayerId = event.newHostPlayerId;
       emitRoomState(room.id);
       return;
@@ -1282,10 +1513,22 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const messageText = event.text.trim().slice(0, 500); // Max 500 chars
-      if (!messageText) {
+      if (room.mutedPlayerIds.includes(player.id)) {
+        socket.emit("event", { type: "error", message: "The host has muted you in this room." });
         return;
       }
+
+      const trimmed = event.text.trim().slice(0, 500); // Max 500 chars
+      if (!trimmed) {
+        return;
+      }
+
+      if (!chatLimiter.allow(player.id)) {
+        socket.emit("event", { type: "error", message: "You're sending messages too fast. Slow down a little." });
+        return;
+      }
+
+      const messageText = filterText(trimmed).text;
 
       const clientMessageId = event.clientMessageId?.trim().slice(0, 80);
       if (
@@ -1321,54 +1564,122 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const validation = validateAction(room, event.actorPlayerId, event.action, event.amount);
-      if (!validation.ok) {
-        socket.emit("event", { type: "error", message: validation.message ?? "Invalid action." });
+      const result = applyPlayerAction(room, event.actorPlayerId, event.action, event.amount);
+      if (!result.ok) {
+        socket.emit("event", { type: "error", message: result.message ?? "Invalid action." });
+      }
+      return;
+    }
+
+    if (event.type === "add_bots") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
         return;
       }
 
-      const currentPlayer = room.players.find((p) => p.id === event.actorPlayerId);
-      if (!currentPlayer) {
+      if (room.hostPlayerId !== event.actorPlayerId) {
+        socket.emit("event", { type: "error", message: "Only the host can add practice players." });
+        return;
+      }
+
+      if (room.status !== "waiting") {
+        socket.emit("event", { type: "error", message: "Add practice players between hands." });
+        return;
+      }
+
+      const added = addBots(room, Number(event.count) || 0);
+      if (added.length === 0) {
+        socket.emit("event", { type: "error", message: `A room can have at most ${MAX_BOTS_PER_ROOM} practice players.` });
+        return;
+      }
+
+      emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "report_message") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      const message = room.messages.find((m) => m.id === event.messageId);
+      const reporter = room.players.find((p) => p.id === event.actorPlayerId);
+      if (!message || !reporter) {
+        socket.emit("event", { type: "error", message: "That message is no longer available." });
+        return;
+      }
+
+      reportLog.add({
+        at: Date.now(),
+        roomCode: room.code,
+        reporterId: reporter.id,
+        reporterName: reporter.displayName,
+        targetPlayerId: message.playerId,
+        targetName: message.playerName,
+        messageId: message.id,
+        text: message.text,
+        reason: (event.reason ?? "").slice(0, 200),
+      });
+      socket.emit("event", { type: "notice", message: "Thanks, your report was sent." });
+      return;
+    }
+
+    if (event.type === "mute_player") {
+      const room = roomById.get(event.roomId);
+      if (!room) {
+        socket.emit("event", { type: "error", message: "Room not found." });
+        return;
+      }
+
+      if (room.hostPlayerId !== event.actorPlayerId) {
+        socket.emit("event", { type: "error", message: "Only the host can mute players." });
+        return;
+      }
+
+      const target = room.players.find((p) => p.id === event.targetPlayerId);
+      if (!target || target.id === room.hostPlayerId) {
         socket.emit("event", { type: "error", message: "Player not found." });
         return;
       }
 
-      appendAction(room, event.actorPlayerId, event.action, event.amount);
-      markPlayerActedThisStreet(room, event.actorPlayerId);
-
-      if (event.action === "fold") {
-        currentPlayer.inHand = false;
-      } else if (event.action === "call") {
-        const callAmount = room.currentBet - currentPlayer.commitment;
-        currentPlayer.stack -= callAmount;
-        currentPlayer.commitment = room.currentBet;
-        currentPlayer.totalContribution += callAmount;
-      } else if (event.action === "raise" && typeof event.amount === "number") {
-        const addAmount = event.amount - currentPlayer.commitment;
-        currentPlayer.stack -= addAmount;
-        currentPlayer.commitment = event.amount;
-        currentPlayer.totalContribution += addAmount;
-        room.currentBet = event.amount;
-      } else if (event.action === "all_in") {
-        const allInAmount = currentPlayer.stack;
-        currentPlayer.commitment += allInAmount;
-        currentPlayer.totalContribution += allInAmount;
-        currentPlayer.stack = 0;
-        room.currentBet = Math.max(room.currentBet, currentPlayer.commitment);
-      }
-
-      room.pots = calculatePots(room);
-
-      const playersInHand = room.players.filter((p) => p.inHand && p.role !== "spectator").sort((a, b) => a.seat - b.seat);
-      if (playersInHand.length === 1) {
-        settleHand(room, [playersInHand[0].id]);
-      } else if (shouldSettleHand(room, currentActedPlayerIds(room))) {
-        advanceStreetOrShowdown(room);
-      } else {
-        room.actingPlayerId = findNextActingPlayer(room, event.actorPlayerId, currentActedPlayerIds(room));
-      }
-
+      const muted = new Set(room.mutedPlayerIds);
+      if (event.muted) muted.add(target.id);
+      else muted.delete(target.id);
+      room.mutedPlayerIds = [...muted];
       emitRoomState(room.id);
+      return;
+    }
+
+    if (event.type === "register_push_token") {
+      const token = String(event.token ?? "").trim();
+      if (!/^[0-9a-fA-F]{32,200}$/.test(token)) {
+        socket.emit("event", { type: "error", message: "Invalid push token." });
+        return;
+      }
+      if (roomById.get(event.roomId)?.players.some((p) => p.id === event.actorPlayerId)) {
+        pushTokens.set(event.actorPlayerId, token);
+        scheduleStatePersistence();
+      }
+      return;
+    }
+
+    if (event.type === "unregister_push_token") {
+      pushTokens.delete(event.actorPlayerId);
+      scheduleStatePersistence();
+      return;
+    }
+
+    if (event.type === "app_state") {
+      const room = roomById.get(event.roomId);
+      if (!room || !room.players.some((p) => p.id === event.actorPlayerId)) {
+        return;
+      }
+      playerAppActive.set(event.actorPlayerId, Boolean(event.active));
+      // Backgrounded while it is their turn: nudge them now.
+      notifyAwaitedPlayers(room);
       return;
     }
 

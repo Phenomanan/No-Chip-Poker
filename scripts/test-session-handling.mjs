@@ -171,7 +171,7 @@ async function runStaleSocketEvictionScenario() {
 
     // And Alice must still actually be able to act through socket B.
     socketA.disconnect(); // already disconnected, harmless no-op call guard
-    p2Socket.emit("event", { type: "start_hand", roomId, actorPlayerId: aliceId });
+    socketB.emit("event", { type: "start_hand", roomId, actorPlayerId: aliceId });
     await wait(250);
     state = getStateP2();
     if (state.status !== "in_hand") {

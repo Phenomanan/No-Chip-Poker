@@ -64,6 +64,28 @@ waiting never skips the gate. Preflop has no gate: the hand starts straight into
 `scripts/test-deal-gate.mjs` covers this, and the fuzz/soak/regression scripts confirm deals as
 they play.
 
+## Socket identity
+
+Every event that acts as a player (`actorPlayerId` / `playerId`) must arrive on that player's own socket
+(`socketToPlayerId`, set on create/join/rejoin). Player ids are visible to everyone in a room, so without this
+check anyone could send host-only events such as `remove_player` or `declare_winners`.
+`scripts/test-ios-server-features.mjs` covers it.
+
+## Practice bots, moderation and push
+
+- **Practice bots** (`apps/server/src/bots.ts`): the host can `add_bots` (max 5, between hands). A bot is a normal
+  `Player` with `isBot: true`; when it is its turn the server acts for it after a short delay
+  (`scheduleBotTurn`, `BOT_DELAY_MS`), through the same `applyPlayerAction` real players use. Bots never host.
+  They are there so one person (or App Review) can play a whole hand alone.
+- **Moderation** (`moderation.ts`): chat goes through a word filter (masks, handles look-alike characters),
+  a per-player rate limit, and the host can `mute_player`. `report_message` logs one JSON `[REPORT]` line per report
+  (visible in Render's logs). Display names are filtered too. Blocking is client-side (the iOS app hides a blocked
+  player's messages on that device).
+- **Push** (`push.ts`): optional APNs sender (token auth, HTTP/2, no dependencies). Clients send
+  `register_push_token` and `app_state {active}`; the server pushes "your turn" / "deal the flop" only to players who are
+  disconnected or backgrounded, once per turn. Tokens live in server memory (persisted with the state file), never in the
+  broadcast room state. Needs `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_KEY` (+ `APNS_HOST` for sandbox).
+
 ## Pot/payout model
 
 `calculatePots` walks each player's total contribution for the hand (`totalContribution`,

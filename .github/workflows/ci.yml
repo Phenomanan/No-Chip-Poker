@@ -48,6 +48,9 @@ jobs:
       - name: Run rules property tests
         run: npm run test:properties
 
+      - name: Run iOS server feature tests (identity guard, bots, moderation, push)
+        run: npm run test:ios-server
+
       - name: Run deal gate tests
         run: npm run test:deal-gate
 

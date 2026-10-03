@@ -53,6 +53,13 @@ npm run test:web       # browser smoke test of the bundle (needs Playwright + Ch
   record exists) and version 1.0 (1). It is set in `capacitor.config.json` and the Xcode project; register the
   same identifier in the Apple Developer portal after enrolling.
 
+## Server settings for the iOS app (Render environment)
+- `CORS_ORIGINS`: must include `capacitor://app.nochippoker` (done).
+- Push notifications (after you have the Apple account; create an APNs Auth Key `.p8` under Keys in the developer portal):
+  `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID=com.phenomanan.nochippoker`, `APNS_KEY` (paste the `.p8` text or its base64),
+  and `APNS_HOST=https://api.sandbox.push.apple.com` while testing development builds (omit for production).
+- `BOT_DELAY_MS` (optional, default 900) tunes how fast practice players act.
+
 ## Next steps (need you)
 1. Enroll in the Apple Developer Program (Xcode is installed; the bundle id is decided).
 2. Backend: always-on hosting with a persistent disk, add the app origin to `CORS_ORIGINS`.
