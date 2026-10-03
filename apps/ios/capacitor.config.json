@@ -1,0 +1,19 @@
+{
+  "appId": "com.nochippoker.app",
+  "appName": "No-Chip Poker",
+  "webDir": "www",
+  "backgroundColor": "#0b1f17",
+  "server": {
+    "hostname": "app.nochippoker",
+    "iosScheme": "capacitor"
+  },
+  "ios": {
+    "contentInset": "never",
+    "limitsNavigationsToAppBoundDomains": false,
+    "preferredContentMode": "mobile"
+  },
+  "plugins": {
+    "SplashScreen": { "launchAutoHide": true, "backgroundColor": "#0b1f17" },
+    "StatusBar": { "style": "DARK", "overlaysWebView": true }
+  }
+}
